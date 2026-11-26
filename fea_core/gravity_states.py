@@ -160,7 +160,7 @@ def unit_arrays(folder: Path) -> dict[str, Any]:
 def save_unit(root: Path, digest: str, axis: int, family: str, U: Any, S: Any, RF: Any, f_app: Any, info: dict[str, Any], refd: dict[int, Any] | None = None,
               deck: str = "study", ref_sig: str = "") -> Path | None:
     from . import state_cache as SC
-    arrays = {"U": np.asarray(U, np.float64), "S": np.asarray(S, np.float64), "RF": np.asarray(RF, np.float64)}
+    arrays: dict[str, np.ndarray] = {"U": np.asarray(U, np.float64), "S": np.asarray(S, np.float64), "RF": np.asarray(RF, np.float64)}
     if f_app is not None:
         arrays["f_app"] = np.asarray(f_app, np.float64)
     if refd:
@@ -261,7 +261,7 @@ def _combine_refd(units: dict[int, dict[str, Any]], v: np.ndarray) -> dict[int, 
     for k in sorted(keys):
         if any(k not in (units[a].get("refd") or {}) for a in used):
             raise ValueError("the unit states do not have the same reference points")
-        out[k] = sum(float(v[a]) / G_MM_S2 * np.asarray(units[a]["refd"][k], float) for a in used)
+        out[k] = np.asarray(sum(float(v[a]) / G_MM_S2 * np.asarray(units[a]["refd"][k], float) for a in used), float)
     return out
 
 

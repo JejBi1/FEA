@@ -871,6 +871,8 @@ def test_the_licence_texts_of_libquadmath_are_shipped_and_say_it_is_inside_the_w
     assert "not inside" not in e["use"] and "AND libquadmath" in e["use"] and "LGPL-2.1" in e["licence"] and "Linux package only" not in e["licence"]
     assert "NOTICE-libquadmath.txt" in e["licence"] and e["texts"] == ["gcc-runtime/*"]
     for rel in ("THIRD_PARTY_LICENSES.md", "docs/projekt/licences_detail.md", "fea_gui/help/index.html", "fea_gui/help/cs/index.html", "installer/license_texts/SOURCES.md"):
+        if rel.startswith("docs/projekt/") and not (ROOT / rel).is_file():
+            continue                                                  # (the development notes are not in a package or in the public export)
         text = (ROOT / rel).read_text(encoding="utf-8")
         assert "libquadmath is NOT inside" not in text and "libquadmath on Linux)" not in text and "jen v balíčku pro Linux" not in text and "only in the Linux package" not in text, rel
     import tempfile

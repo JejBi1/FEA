@@ -210,7 +210,7 @@ def _arrays_direct(study, mesh, workdir: Path, log, on_line, cancel, k: int, fm,
     need_cols = bool(ncol and (with_reactions or dm.statics))      # (the unit-acceleration columns serve the static states of the cases and the modal reactions – a basis without either recovers nothing)
     rec = MCH.load_recovery(dm, len(freq), with_stress) if (with_reactions or need_cols) else None
     if rec is not None:
-        log(f"Modal stresses and reactions of {int(ok.sum())} modes: from the stored basis ({Path(dm.cache).name})")
+        log(f"Modal stresses and reactions of {int(ok.sum())} modes: from the stored basis ({Path(str(dm.cache)).name})")
         stress = (rec["stress"] if mapped else np.array(rec["stress"])) if with_stress else np.zeros((len(freq), 0, 6), np.float32)
         rf = np.array(rec["rf"]) if with_reactions else np.zeros((len(freq), len(cn), 3))
         col_S, col_RF = rec["col_S"], rec["col_RF"]

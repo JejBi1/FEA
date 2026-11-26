@@ -107,10 +107,36 @@ def pytest_runtest_makereport(item, call):
                             f"Skipped: optional program module '{key}' is not installed")
 
 
+@pytest.hookimpl(hookwrapper=True)
+def pytest_make_collect_report(collector):
+    """A test module that imports an optional package at its top (numba, PySide6) is SKIPPED on an installation without that module (profile minimal), as a test
+    that fails for the same reason is (above), instead of breaking the collection."""
+    outcome = yield
+    rep = outcome.get_result()
+    if not rep.failed:
+        return
+    import re
+    text = str(rep.longrepr)
+    key = None
+    m = re.search(r"ModuleMissing: .*?\((\w+)\)\. Install it", text)
+    if m:
+        from fea_core import modules
+        key = m.group(1) if not modules.available(m.group(1)) else None
+    else:
+        m = re.search(r"ModuleNotFoundError: No module named '([\w.]+)'", text)
+        if m:
+            key = _optional_packages().get(m.group(1).split(".")[0].lower())
+    if key:
+        rep.outcome = "skipped"
+        rep.longrepr = (str(collector.path), 0, f"Skipped: optional program module '{key}' is not installed")
+
+
 @pytest.fixture(autouse=True)
-def _fresh_state_cache():
-    """The state cache (fea_core.state_cache: the modal basis / unit states of a study) lives in the process: a test must not find the entries of an earlier one."""
+def _fresh_state_cache(monkeypatch):
+    """The state cache (fea_core.state_cache: the modal basis / unit states of a study) lives in the process: a test must not find the entries of an earlier one.
+    Its free-space rule (MIN_FREE_GB of the work volume) is lifted: a CI runner has less than 10 GB free and the cache would silently store nothing."""
     from fea_core import state_cache
+    monkeypatch.setattr(state_cache, "MIN_FREE_GB", 0.0)
     state_cache.clear()
     yield
     state_cache.clear()

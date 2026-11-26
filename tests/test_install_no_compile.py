@@ -171,7 +171,8 @@ def test_check_only_and_the_opt_out_do_not_need_the_archive(tmp_path, monkeypatc
     monkeypatch.setattr(mp, "dirty_files", lambda: [])
     staged = []
     monkeypatch.setattr(mp, "file_list", lambda ref: staged.append(ref) or (_ for _ in ()).throw(KeyboardInterrupt()))
-    for extra in (["--check-only"], ["--no-linux-ccx", "--out", str(tmp_path / "dist")]):
+    for extra in (["--check-only"], ["--no-linux-ccx", "--no-windows-ccx", "--out", str(tmp_path / "dist")]):   # (the Windows archive is not
+                                                                     # on a CI runner / a fresh checkout either: this test is about the Linux one)
         monkeypatch.setattr(sys, "argv", ["make_package.py", *extra])
         with pytest.raises(KeyboardInterrupt):                               # got past the check: staging started
             mp.main()

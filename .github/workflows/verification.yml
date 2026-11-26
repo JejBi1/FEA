@@ -22,6 +22,10 @@ on:
         description: "Leave out the very long cases (verification.tiers.VERY_SLOW)"
         type: boolean
         default: false
+      only:
+        description: "Run only these published cases (keys separated by spaces, e.g. K2 KK2); empty = the whole set"
+        type: string
+        default: ""
 
 permissions:
   contents: read
@@ -99,10 +103,14 @@ jobs:
           "$VPY" -m verification.run_public --list
 
       - name: Public verification set (quick on the weekly schedule, full otherwise)
+        env:
+          ONLY_CASES: ${{ inputs.only }}
         run: |
           QUICK=""
           if [ "${{ github.event_name }}" = "schedule" ] || [ "${{ inputs.quick }}" = "true" ]; then QUICK="--quick"; fi
-          "$VPY" -m verification.run_public $QUICK
+          ONLY=""
+          if [ -n "$ONLY_CASES" ]; then ONLY="--only $ONLY_CASES"; fi
+          "$VPY" -m verification.run_public $QUICK $ONLY
 
       - name: Summary
         if: always()
@@ -121,3 +129,16 @@ jobs:
             verification/out_mystran/report.json
           if-no-files-found: warn
           retention-days: 90
+
+      - name: Solver logs of the cases (on a failure – what CalculiX said)
+        if: failure()
+        uses: actions/upload-artifact@330a01c490aca151604b8cf639adc76d48f6c5d4   # v5.0.0
+        with:
+          name: verification-solver-logs-${{ github.sha }}
+          path: |
+            verification/out/**/*.sta
+            verification/out/**/*.cvg
+            verification/out/**/*.log
+            verification/out/**/*.inp
+          if-no-files-found: ignore
+          retention-days: 30

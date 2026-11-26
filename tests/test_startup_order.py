@@ -43,6 +43,9 @@ def test_the_window_module_is_still_imported_only_after_the_splash():
     """The launch file must import the window (`from .main import main`) AFTER it has created the splash, and nothing heavy at the top of the file."""
     src = (ROOT / "fea_gui" / "__main__.py").read_text(encoding="utf-8")
     assert src.index("_splash()") < src.index("from .main import main")
-    top = src[:src.index("from .main import main")]
-    for name in ("import numpy", "import OCP", "import scipy", "from fea_core"):
-        assert name not in top.replace("from fea_core.config", ""), name
+    import ast
+    top = ast.parse(src[:src.index("from .main import main")])
+    mods = [a.name for n in top.body if isinstance(n, ast.Import) for a in n.names]          # MODULE-level imports only: an import inside a function
+    mods += [n.module or "" for n in top.body if isinstance(n, ast.ImportFrom)]               # (the message of a missing GUI module) runs only when called
+    for name in ("numpy", "OCP", "scipy", "fea_core"):
+        assert not any(m == name or (m.startswith(name + ".") and m != "fea_core.config") for m in mods), name

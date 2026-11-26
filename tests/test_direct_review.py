@@ -438,6 +438,8 @@ def test_side_jobs_start_beside_the_direct_solver_with_its_share_of_threads(monk
         def abort(self, log=None):
             pass
     monkeypatch.setattr(solve, "Background", FakeBackground)
+    from fea_core import config
+    monkeypatch.setattr(config, "NUM_THREADS", 8)                  # (the share is capped by the cores of the machine: a CI runner has 1–2)
     monkeypatch.setenv("FEA_MODAL_ENGINE", "ccx")                  # the natural frequencies of the direct path are no side job (they follow the mechanics)
     monkeypatch.setattr(side_jobs, "beside_direct", lambda ndof, n_side, **k: (2, 4))
     side = side_jobs.SideJobs(_study_with_modal(), _Mesh(70_000), tmp_path, print, None, None, [], backend="ngs_direct")

@@ -239,6 +239,7 @@ def test_the_ccx_of_this_machine_with_faer_solves_and_says_so(tmp_path):
     from fea_core.solve import run_study
     case = C.CASES["V2"]
     study, _parts = case.build(tmp_path)
+    study.solver.backend = "ccx"                                    # (with the direct solver installed, auto would not run CalculiX at all)
     res = run_study(study, tmp_path / "run")
     assert res.info["ccx_solver"] == "FAER"
     assert all(c.ok for c in case.evaluate(res, study))

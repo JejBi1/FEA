@@ -156,7 +156,8 @@ def rbf_cv_errors(X: np.ndarray, y: np.ndarray, smoothing: float, folds: np.ndar
             # leaving B out makes the refit singular (all points but one on a line, a simplex, a degenerate fold) exactly when A_BB is singular: not answered here
             if not np.min(np.linalg.svd(AB, compute_uv=False)) > RBF_CV_PIVOT_MIN * dmax:
                 return None
-            err[B] = -c[B] / AB[0, 0] if len(B) == 1 else -np.linalg.solve(AB, c[B])
+            cB = np.asarray(c[B], dtype=float)
+            err[B] = -cB / AB[0, 0] if len(B) == 1 else -np.linalg.solve(AB, cB)
     return err if np.all(np.isfinite(err)) else None
 
 

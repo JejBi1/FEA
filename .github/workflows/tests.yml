@@ -143,8 +143,13 @@ jobs:
 
       - name: Build CalculiX (Windows, cache miss – a release tool, not part of the installer)
         if: runner.os == 'Windows' && steps.ccx-win-cache.outputs.cache-hit != 'true'
+        timeout-minutes: 90        # (a hang fails this step, not the whole job after 150 minutes)
         shell: pwsh
         run: |
+          # the real-time scan of the runner's Defender makes unpacking the MSYS2 toolchain (tens of thousands of small files) crawl: the first CI run
+          # spent 2.5 h in that tar without finishing (2 minutes on a workstation). The runner is a throw-away machine.
+          Set-MpPreference -DisableRealtimeMonitoring $true -ErrorAction SilentlyContinue
+          Add-MpPreference -ExclusionPath "$env:RUNNER_TEMP", "$env:GITHUB_WORKSPACE" -ErrorAction SilentlyContinue
           # the work folder outside the checkout (the toolchain is ~1 GB), the output archive where the installer looks for it; the source packages of the
           # run-time libraries (270 MB) are for the release package only, the tests do not need them
           powershell -NoProfile -ExecutionPolicy Bypass -File installer/windows/build_ccx.ps1 -Work "$env:RUNNER_TEMP\ccx-win-work" -Jobs 4 -SkipRuntimeSources
