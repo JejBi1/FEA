@@ -1,0 +1,26 @@
+<h1>Verification against independent references</h1>
+<p class="lead">FEA Studio publishes a set of verification cases in which every result is compared with a <b>reference that does not come from FEA Studio</b> – a closed-form solution, a handbook or standard formula, a published solution, or the open-source solver MYSTRAN. For each case either a work is cited or – for an elementary relation – the first-principles relation is stated (the page marks such a case “relation stated, no work cited”). Each case shows the quantity, the source of the reference, the FEA Studio value, the difference, the tolerance and the mesh. The <b>About</b> dialog shows the current count (“N public verification cases, all within tolerance”).</p>
+
+<p><a href="fea:verification_page">Open the verification page</a> (<code>docs/verification/index.html</code> in the program folder; the same tables are in <code>README.md</code> and <code>results.csv</code> next to it).</p>
+
+<h2>What the page contains</h2>
+<ul>
+<li><b>Tables by domain</b>: linear statics, heat conduction and thermal stress, natural frequencies / buckling / dynamics, contacts, bolted and welded joints, fatigue, 3D-printed parts, beams and frames, 2D sections and shells, plasticity, mechanisms.</li>
+<li><b>Reference type</b> of each case: closed-form solution (Lamé, beam theory, Fourier's law, Euler buckling …), handbook or standard (stress concentration factors, convection correlations, EN / VDI / IIW rules), published solution (Hertz, Hetényi, Lekhnitskii, Miles, Neuber, Findley …) or MYSTRAN.</li>
+<li><b>Cross-check against MYSTRAN</b>: the same mesh (coarsened ×2) and nodal loads are solved by CalculiX and by MYSTRAN, which has its own assembly, boundary conditions and solver; the displacements and reactions must agree within 10<sup>-3</sup>.</li>
+<li><b>MYSTRAN is not part of FEA Studio</b>: it is a third-party program that no package carries and the installer does not download. To run the MYSTRAN cases yourself, download it from <code>https://www.mystran.com</code> (forum, Download) and save it as <code>tools/mystran/mystran.exe</code> (Linux <code>tools/mystran/mystran</code>) in the program folder. Without it, the cases whose reference is MYSTRAN are listed as “not run – MYSTRAN not installed” and the other cross-checked cases are marked “no MYSTRAN cross-check”. The rows on the published page come from a run with the program. Releases before 1.5.1 carried the program: an update from such a version removes that copy from <code>tools/mystran</code> (also one you saved there yourself under the same file name), so download it again; a copy saved after the update stays.</li>
+<li><b>Run data</b>: program version, date, CalculiX and MYSTRAN version, platform and run time. Cases that cannot run on the platform of the snapshot (for example the mortar contact of the Hertz case on Windows) are listed with the reason; they are never counted as passed.</li>
+</ul>
+<p class="tip"><b>How to read the tolerance:</b> the finite-element result differs from a closed-form value by the discretisation error of the mesh, so each check has its own tolerance (displacements typically 1–3 %, stresses away from singularities 5 %). A case is within tolerance only when <b>all</b> its checks pass.</p>
+
+<h2>What is not published</h2>
+<p>A case without a reference from outside the program is not published: the program's own equilibrium and bookkeeping checks (also the rows of a published case that only repeat the applied load as a reaction), comparisons of two runs of the same model, wiring tests of input tables and checks of warning messages stay in the test suite (<code>python -m pytest</code>, <code>verification.run_all</code>) but are not presented as verification. Some published cases contain a few such consistency checks besides the referenced ones; they are not listed on the page but must pass too.</p>
+<p class="warn"><b>Note:</b> a verified benchmark does not verify <i>your</i> model. Mesh convergence, boundary conditions and singularities of your own geometry must still be checked (see <a href="sit.html">Mesh</a> and <a href="vysledky.html">Results</a>).</p>
+
+<h2>Regenerating the page</h2>
+<ul>
+<li><code>python -m verification.run_public</code> runs all published cases (about an hour; <code>--quick</code> leaves out the long contact cases; the impact case KK4 takes hours and runs only with <code>--only KK4</code>) and rewrites <code>docs/verification/</code>. It needs CalculiX and Gmsh (the Python packages: module “Verification”) and, for the MYSTRAN cases, MYSTRAN, which you download yourself (see above).</li>
+<li><code>python -m verification.public_report</code> only rewrites the page from the stored results of the last run.</li>
+<li>The cases and their references are defined in <code>verification/catalogue.py</code>; the continuous-integration job “verification” runs the set on Linux (weekly the quick set, on every release tag the full set) and keeps the generated page as an artifact.</li>
+</ul>
+<p>See also: <a href="testovani.html">Testing the program</a> (problems you can set up yourself in the window).</p>

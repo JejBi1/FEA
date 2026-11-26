@@ -1,0 +1,506 @@
+Serial triangular solve and a CHECKED multi-threaded factorization in SPOOLES (GPL-2.0, like CalculiX itself; a change of the solver logic of
+CalculiX 2.23 made by FEA Studio). Applied by installer/windows/build_ccx.sh and installer/linux/build_ccx.sh with `patch -p1` in the
+folder that contains CalculiX/ccx_2.23/. The same file lies in installer/windows/patches/ and installer/linux/patches/.
+Dates of the change: 20. 11. 2026 (first version), 21. 11. 2026 (review: row-wise check, verdict of the serial repeat, bookkeeping error of the threads,
+link proof of the ordered SPOOLES), 23. 11. 2026 (fea_judge: a violation of the bookkeeping is judged before the off-switches; a repeat whose test solve could
+not be done is not called confirmed) and 24. 11. 2026 (review of the integrated 1.5.1 line: after the verdict "the matrix" the later factorizations of the process run
+on ONE thread; the marker is FEA_SPOOLES_FACTOR_CHECK=2, the value of the first fea_judge was 1). GPL-2.0 section 2a: the modified files carry a notice that they were changed and when; the comments "FEA Studio change,
+21. 11. 2026", "23. 11. 2026" and "24. 11. 2026" of the hunks below are that notice in spooles.c and ccx_2.23.c, the printf of the first hunk is the notice at the program start.
+The text above the first hunk header is ignored by patch(1); only the hunks (from the first minus-minus-minus line on) are the same for the Windows and the Linux build.
+
+Why 1 (serial solve): with CCX_NPROC_EQUATION_SOLVER > 1 ccx 2.23 factorizes with FrontMtx_MT_factorInpMtx and solves with FrontMtx_MT_solve (via
+fsolve_MT in spooles.c). The multi-threaded solve is a data race: eigenvalue and buckling decks, which solve many right hand sides with one factorization,
+returned wrong and run-to-run different results without any message from 3 threads on (buckling B1: factor 0.99 instead of 21.65 with 4 threads; the
+dhondt.de build behaves the same). The change: fsolve_MT calls the serial FrontMtx_solve. fsolve_MT is the only caller of FrontMtx_MT_solve in CalculiX,
+and spooles_solve and spooles_solve_rad (every static, eigenvalue / ARPACK, buckling, dynamic and radiation solve) reach it only there, so this one call
+covers every place where the multi-threaded solve was used.
+
+Why 2 (checked factorization): the multi-threaded FACTORIZATION of SPOOLES (FrontMtx_MT_factorInpMtx) is not safe either. In rare runs (3 in 1 260 modal /
+buckling analyses with 4 threads on a 16 core machine; not reproduced in 2 600 runs pinned to two cores and in 8 000 factorizations with random delays at the
+hand-over points; ThreadSanitizer reports only the intended lock-free hand-over) the aggregate chevron of one thread for one front is silently not assembled
+by the thread that owns the front: the factors are those of another matrix, and the eigenvalues of the saved wrong run (0.7234915E+07 0.8180524E+07
+0.5683356E+09 0.5164242E+10 instead of 0.6534415E+06 0.6534491E+06 0.2605042E+09 0.5024819E+09) are reproduced to the last digit by dropping exactly that
+chevron. The mechanism of the loss was not found. The change makes the result safe without knowing it: spooles_factor and spooles_factor_rad solve one pseudo
+random right hand side (|b_i| between 0.25 and 1) with the new factors and compute the ROW-WISE backward error
+max_i |b_i - (A x)_i| / ( sum_j |a_ij| |x_j| + |b_i| ) with the matrix that they handed to SPOOLES (all five input formats): about 1e-16 for a correct
+factorization, and every row is judged by its own size, so a lost update is as visible in a soft part of a model with a stiffness ratio of 1e5 as in a stiff one
+(the first version used a norm of the whole matrix and a limit of 1e-9, which scales with the stiffest row). Above 1e-12 (environment variable
+FEA_SPOOLES_CHECK_TOL changes the limit, 0 switches the check off for tests; the program removes the variable from the environment of ccx unless FEA_DEV=1) the
+factors are dropped and the matrix is factorized again with the same threads and, if that fails too, with ONE thread (no hand-over between threads). The
+factorization on one thread is checked too: when it passes, the loss in the threads is confirmed ("threaded loss confirmed"); when it fails as well, the cause is
+the matrix ("the matrix, not the threads"), the factors are used as they are and the check is switched off for the rest of the process (a static flag), so a
+matrix that no factorization can pass does not make every later factorization run three times. The threaded factorization is safe only while it is checked, so
+(24. 11. 2026) every LATER factorization of that process runs on ONE thread: `(num_cpus > 1)&&(fea_attempt < 2)&&(!fea_check_off)` in spooles_factor and
+spooles_factor_rad (before this change the later systems ran unchecked on the threads). SPOOLES itself reports a violation of its own bookkeeping of the
+hand-over (see spooles_2.2_ordered_assembly.patch: every list empty, every count zero, chevrons sent = taken = assembled at the end of the factorization) with
+the error code -2, which is treated like a failed check; that verdict is made BEFORE the off-switches (the flag of an earlier matrix that no factorization passes, and
+the test limit 0), because it needs no test solve. A check that cannot be done (no memory for the test solve) is reported with a warning, and a repeated
+factorization whose test solve could not be done is used "without a verdict": it is never called "confirmed". The cost is one solve and one matrix-vector product.
+
+The first hunk makes `ccx -v` print the lines FEA_SPOOLES_SERIAL_SOLVE=1, FEA_SPOOLES_FACTOR_CHECK=2 and FEA_SPOOLES_ORDERED_ASSEMBLY=1 (only in a build with
+USE_MT): markers that the program reads from the executable (fea_core.ccx.runner.spooles_threads_safe) before it allows more than one equation-solver thread.
+The third line is printed only when fea_spooles_ordered() (spooles.c) is called, and that function takes the address of FrontMtx_updateOrdered, which exists only in
+the SPOOLES of spooles_2.2_ordered_assembly.patch: a ccx linked with an unpatched spooles.a does not link at all, so a binary with the marker has that SPOOLES inside.
+A ccx without the second marker keeps the single thread. The value of the check marker is 2 since 24. 11. 2026: a binary built with the first fea_judge prints
+FEA_SPOOLES_FACTOR_CHECK=1 (the later factorizations after a verdict "the matrix" still ran unchecked on the threads), and the program gives it ONE thread.
+
+--- a/CalculiX/ccx_2.23/src/ccx_2.23.c
++++ b/CalculiX/ccx_2.23/src/ccx_2.23.c
+@@ -125,6 +125,19 @@
+ 	strcpy1(jobnamef,argv[i+1],132);jin++;break;}
+       if(strcmp1(argv[i],"-v")==0){
+ 	printf("\nThis is Version 2.23\n\n");
++#ifdef USE_MT
++	/* FEA Studio change, 21. 11. 2026: markers of a build with the serial SPOOLES solve, the checked multi-threaded factorization (spooles.c) and the
++	   ordered assembly of the patched SPOOLES (the call of fea_spooles_ordered, spooles.c, links only with the SPOOLES that has FrontMtx_updateOrdered);
++	   the program allows several equation-solver threads only for a binary that carries the second marker (fea_core.ccx.runner.spooles_threads_safe
++	   reads this very string from the file) */
++	{
++	  extern int fea_spooles_ordered(void);
++	  printf("FEA_SPOOLES_SERIAL_SOLVE=1 (multi-threaded SPOOLES factorization, serial triangular solve)\n");
++	  printf("FEA_SPOOLES_FACTOR_CHECK=2 (the factors of a multi-threaded factorization are checked by a test solve and repeated when the check fails; after the verdict \"the matrix\" the later factorizations run on one thread)\n");
++	  if(fea_spooles_ordered()) printf("FEA_SPOOLES_ORDERED_ASSEMBLY=1 (the sums of the multi-threaded factorization are made in an order that does not depend on the timing)\n");
++	  printf("\n");
++	}
++#endif
+ 	FORTRAN(stop,());
+       }
+     }
+--- a/CalculiX/ccx_2.23/src/spooles.c
++++ b/CalculiX/ccx_2.23/src/spooles.c
+@@ -284,6 +284,13 @@
+ }
+ 
+ #ifdef USE_MT 
++
++/* FEA Studio change, 21. 11. 2026: fea_agg_violation is set by factor_MT when the threaded factorization of SPOOLES reports (error -2) that the
++   bookkeeping of the aggregates of the hand-over between the threads is violated; fea_check_off is set when a factorization on ONE thread fails the check
++   (the matrix is the cause, see fea_judge) */
++static int fea_agg_violation=0;
++static int fea_check_off=0;
++
+ void factor_MT(struct factorinfo *pfi, InpMtx *mtxA, int size, FILE *msgFile, int *symmetryflagi4)
+ {
+ 	Graph *graph;
+@@ -383,6 +390,7 @@
+ 			fprintf(pfi->msgFile, "\n\n fatal error at front %d", error);
+ 			exit(-1);
+ 		}
++		if (error == -2) fea_agg_violation = 1;     /* FEA Studio change, 21. 11. 2026 */
+ 	}
+ 
+ 	/*
+@@ -419,15 +427,23 @@
+ 
+ 
+ 	/*
+-	 * STEP 9: solve the linear system in parallel
++	 * STEP 9: solve the linear system
++	 *
++	 * FEA Studio change, 21. 11. 2026 (GPL-2.0, like the rest of this
++	 * file): the factorization stays multi-threaded (factor_MT), but the triangular
++	 * solve is the SERIAL one. FrontMtx_MT_solve (SPOOLES MT/) is a data
++	 * race: from 3 threads on, eigenvalue and buckling decks, which solve
++	 * many right hand sides with one factorization, returned wrong and
++	 * run-to-run different results without any message. This is the
++	 * only place where the parallel solve is called (spooles_solve and
++	 * spooles_solve_rad both reach it through fsolve_MT).
+ 	 */
+ 	{
+ 		mtxX = DenseMtx_new();
+ 		DenseMtx_init(mtxX, SPOOLES_REAL, 0, 0, pfi->size, 1, 1, pfi->size);
+ 		DenseMtx_zero(mtxX);
+-		FrontMtx_MT_solve(pfi->frontmtx, mtxX, mtxB, pfi->mtxmanager,
+-					pfi->solvemap, pfi->cpus, DEBUG_LVL,
+-					pfi->msgFile);
++		FrontMtx_solve(pfi->frontmtx, mtxX, mtxB, pfi->mtxmanager,
++			       pfi->cpus, DEBUG_LVL, pfi->msgFile);
+ 		if (DEBUG_LVL > 1) {
+ 			fprintf(pfi->msgFile, "\n\n solution matrix in new ordering");
+ 			DenseMtx_writeForHumanEye(mtxX, pfi->msgFile);
+@@ -456,6 +472,275 @@
+ FILE *msgFile;
+ struct factorinfo pfi;
+ 
++#ifdef USE_MT
++
++/*
++ * FEA Studio change, 21. 11. 2026 (GPL-2.0, like the rest of this file; this
++ * block is the notice of GPL section 2a): the result of a multi-threaded
++ * factorization is CHECKED before it is used. In rare runs (3 in 1 260 modal /
++ * buckling analyses with 4 threads on a 16 core machine) the multi-threaded
++ * factorization of SPOOLES silently loses the update of one thread for one
++ * front (an aggregate chevron that is handed to the owner of the front is not
++ * assembled; reproduced to the digit by dropping that chevron): the factors
++ * are those of another matrix and the eigenvalues are wrong without any
++ * message. The check solves one pseudo random right hand side with the new
++ * factors and compares A x with b with the matrix that was handed to SPOOLES
++ * (the entries that spooles_factor puts into the InpMtx object). The measure
++ * is the ROW-WISE backward error
++ *     eta = max_i |b_i - (A x)_i| / ( sum_j |a_ij| |x_j| + |b_i| )
++ * (every row is judged by its own size, so a lost update in a soft part of a
++ * model with a stiffness ratio of 1e5 or more or in a penalty contact is as
++ * visible as in a stiff one) with |b_i| >= 0.25 (no row is judged against a
++ * zero). It is about 1e-16 for a correct factorization. When the check fails
++ * the factorization is repeated with the same threads, and then with ONE
++ * thread, which has no hand over of data between threads; that factorization
++ * is checked too: when it passes, the loss in the threads is confirmed, when it
++ * fails as well the cause is the matrix, no further repeats are made in
++ * this process and (FEA Studio change, 24. 11. 2026) every later factorization
++ * of this process runs on ONE thread, because the factorization on the threads
++ * is not protected any more once the check is off (see the conditions in
++ * spooles_factor and spooles_factor_rad). FEA_SPOOLES_CHECK_TOL changes the limit (default 1e-12), 0
++ * switches the check off (developer tests only; the program removes the
++ * variable from the environment of ccx unless FEA_DEV=1).
++ */
++
++static double fea_check_tol()
++{
++	char *e,*end;
++	e=getenv("FEA_SPOOLES_CHECK_TOL");
++	if((e!=NULL)&&(*e!='\0')){
++		double t=strtod(e,&end);
++		if((end!=e)&&(*end=='\0')&&(t>=0.)) return t;   /* a typo keeps the default */
++	}
++	return 1.e-12;
++}
++
++/* y = A x for the matrix that spooles_factor / spooles_factor_rad hand to
++   SPOOLES (exactly the entries of the InpMtx object); rs[i] = sum over j of
++   |a(i,j) x(j)|; ioff = offset of the second triangle in au for inputformat 1 */
++
++#define FEA_ENTRY(R,C,V) do{v=(V);y[R]+=v*x[C];rs[R]+=fabs(v*x[C]);\
++	if((symmetryflagi4==0)&&((R)!=(C))){y[C]+=v*x[R];rs[C]+=fabs(v*x[R]);}\
++	}while(0)
++
++static void fea_matvec(double *ad,double *au,double *adb,double *aub,
++		       double *sigma,ITG *icol,ITG *irow,ITG *neq,ITG *nzs,
++		       int symmetryflagi4,ITG *inputformat,ITG ioff,
++		       double *x,double *y,double *rs)
++{
++	int size=*neq,col,row,ipo,ipoint,i,j;
++	double s=*sigma,v;
++
++	if(*inputformat==0){
++		ipoint=0;
++		for(col=0;col<size;col++){
++			if(s==0.){FEA_ENTRY(col,col,ad[col]);}
++			else{FEA_ENTRY(col,col,ad[col]-s*adb[col]);}
++			for(ipo=ipoint;ipo<ipoint+icol[col];ipo++){
++				row=irow[ipo]-1;
++				if(s==0.){FEA_ENTRY(col,row,au[ipo]);}
++				else{FEA_ENTRY(col,row,au[ipo]-s*aub[ipo]);}
++			}
++			ipoint=ipoint+icol[col];
++		}
++	}else if(*inputformat==1){
++		ipoint=0;
++		for(col=0;col<size;col++){
++			if(s==0.){FEA_ENTRY(col,col,ad[col]);}
++			else{FEA_ENTRY(col,col,ad[col]-s*adb[col]);}
++			for(ipo=ipoint;ipo<ipoint+icol[col];ipo++){
++				row=irow[ipo]-1;
++				if(s==0.){
++					FEA_ENTRY(row,col,au[ipo]);
++					FEA_ENTRY(col,row,au[ipo+ioff]);
++				}else{
++					FEA_ENTRY(row,col,au[ipo]-s*aub[ipo]);
++					FEA_ENTRY(col,row,au[ipo+ioff]-s*aub[ipo+ioff]);
++				}
++			}
++			ipoint=ipoint+icol[col];
++		}
++	}else if(*inputformat==2){
++		for(i=0;i<*neq;i++){
++			for(j=0;j<*neq;j++){
++				if(fabs(ad[i*(int)*nzs+j])>1.e-20){
++					FEA_ENTRY(j,i,ad[i*(int)*nzs+j]);
++				}
++			}
++		}
++	}else if(*inputformat==3){
++		ipoint=0;
++		for(col=0;col<size;col++){
++			if(s==0.){FEA_ENTRY(col,col,ad[col]);}
++			else{FEA_ENTRY(col,col,ad[col]-s*adb[col]);}
++			for(ipo=ipoint;ipo<ipoint+icol[col];ipo++){
++				row=irow[ipo]-1;
++				if(s==0.){FEA_ENTRY(row,col,au[ipo]);}
++				else{FEA_ENTRY(row,col,au[ipo]-s*aub[ipo]);}
++			}
++			ipoint=ipoint+icol[col];
++		}
++	}else if(*inputformat==4){
++		for(row=0;row<size;row++){
++			for(ipo=irow[row];ipo<irow[row+1];ipo++){
++				col=icol[ipo]-1;
++				FEA_ENTRY(col,row,au[ipo]);
++			}
++		}
++	}
++}
++
++/* row-wise backward error of the factorization in p for a fixed pseudo random
++   right hand side (|b_i| between 0.25 and 1); -1. if it could not be checked
++   (no memory) */
++
++static double fea_check_factor(struct factorinfo *p,
++	double *ad,double *au,double *adb,double *aub,double *sigma,
++	ITG *icol,ITG *irow,ITG *neq,ITG *nzs,int symmetryflagi4,
++	ITG *inputformat,ITG ioff)
++{
++	int size=*neq,i;
++	unsigned int seed=12345u;
++	double *b0,*x0,*y,*rs,d,eta=0.,e;
++	DenseMtx *mtxB,*mtxX;
++
++	if(size<1) return 0.;
++	b0=(double *)malloc(size*sizeof(double));
++	x0=(double *)malloc(size*sizeof(double));
++	y=(double *)calloc(size,sizeof(double));
++	rs=(double *)calloc(size,sizeof(double));
++	if((b0==NULL)||(x0==NULL)||(y==NULL)||(rs==NULL)){
++		free(b0);free(x0);free(y);free(rs);
++		return -1.;
++	}
++	for(i=0;i<size;i++){
++		seed=seed*1103515245u+12345u;
++		d=0.25+0.75*(((seed>>8)&0xffff)/65536.);
++		seed=seed*1103515245u+12345u;
++		b0[i]=((seed>>16)&1u)?d:-d;
++	}
++	mtxB=DenseMtx_new();
++	DenseMtx_init(mtxB,SPOOLES_REAL,0,0,size,1,1,size);
++	DenseMtx_zero(mtxB);
++	for(i=0;i<size;i++) DenseMtx_setRealEntry(mtxB,i,0,b0[i]);
++	mtxX=fsolve_MT(p,mtxB);
++	for(i=0;i<size;i++) x0[i]=DenseMtx_entries(mtxX)[i];
++	DenseMtx_free(mtxX);
++	fea_matvec(ad,au,adb,aub,sigma,icol,irow,neq,nzs,symmetryflagi4,
++		   inputformat,ioff,x0,y,rs);
++	for(i=0;i<size;i++){
++		e=fabs(y[i]-b0[i])/(rs[i]+fabs(b0[i]));
++		if(e!=e) e=1.e300;
++		if(e>eta) eta=e;
++	}
++	free(b0);free(x0);free(y);free(rs);
++	return eta;
++}
++
++/* frees what a factorization made (as spooles_cleanup, but the message file
++   stays open) */
++
++static void fea_free_factor(struct factorinfo *p)
++{
++	FrontMtx_free(p->frontmtx);
++	IV_free(p->newToOldIV);
++	IV_free(p->oldToNewIV);
++	SubMtxManager_free(p->mtxmanager);
++	if (p->solvemap){
++		SolveMap_free(p->solvemap);
++		p->solvemap=NULL;
++	}
++	ETree_free(p->frontETree);
++}
++
++/* the verdict on a factorization. attempt = 0, 1: multi-threaded factorizations
++   (nthread threads), 2: the factorization on ONE thread after two failures.
++   Returns 1 when the system must be factorized again (the factors are freed),
++   0 when the factors are accepted.
++   FEA Studio change, 23. 11. 2026 (order of the decisions, after a review): a violation of the bookkeeping of
++   SPOOLES (error -2, `bad`) is evidence by itself and is judged BEFORE any off-switch
++   (the static flag fea_check_off that an earlier matrix set, and FEA_SPOOLES_CHECK_TOL=0),
++   then the test solve; a repeat is called "confirmed" only when its test solve was
++   done and passed - when the test solve could not be done (no memory), the repeat is
++   used without a verdict and the log says so. */
++
++static int fea_judge(struct factorinfo *p,int attempt,int nthread,
++	double *ad,double *au,double *adb,double *aub,double *sigma,
++	ITG *icol,ITG *irow,ITG *neq,ITG *nzs,int symmetryflagi4,
++	ITG *inputformat,ITG ioff)
++{
++	double tol=fea_check_tol(),eta=0.;
++	int bad=fea_agg_violation,off,unchecked=0;
++
++	fea_agg_violation=0;
++	if(attempt>=2) bad=0;               /* one thread: no hand-over, nothing to violate */
++	off=((fea_check_off)||(tol<=0.));
++	if((off)&&(!bad)) return 0;
++	if(!off){
++		eta=fea_check_factor(p,ad,au,adb,aub,sigma,icol,irow,neq,nzs,
++				     symmetryflagi4,inputformat,ioff);
++		if(eta<0.){
++			unchecked=1;            /* no verdict from the test solve (the bookkeeping flag still counts) */
++			eta=0.;
++			if(attempt==0){
++				printf(" *WARNING in spooles: the factors could not be checked (not enough memory for the test solve).\n%s",bad?"":"\n");
++			}else{
++				printf(" *WARNING in spooles: the factors of the repeated factorization could not be checked (not enough memory for the test solve).\n");
++			}
++		}
++	}
++	if(attempt>=2){
++		if(unchecked){
++			printf("                      The factorization on ONE thread is used without a verdict: a loss in the threads is NOT confirmed.\n\n");
++		}else if(eta>tol){
++			printf(" *WARNING in spooles: the factorization on ONE thread fails the check as well (relative residual of a test solve %.3e, limit %.1e):\n"
++			       "                      the matrix, not the threads, is the cause (nearly singular or very badly scaled system of equations). The factors are used\n"
++			       "                      as they are; the check is switched off for the rest of this run and the later factorizations run on ONE thread.\n\n",eta,tol);
++			fea_check_off=1;
++		}else{
++			printf("                      The factorization on ONE thread passes the check (relative residual %.3e): threaded loss confirmed.\n\n",eta);
++		}
++		return 0;
++	}
++	if((eta>tol)||(bad)){
++		if(off){
++			printf(" *WARNING in spooles: the multi-threaded factorization failed the check of its result (the bookkeeping of the hand-over between the threads is violated; the test solve of the factors is switched off).\n");
++		}else if(unchecked){
++			printf(" *WARNING in spooles: the multi-threaded factorization failed the check of its result (the bookkeeping of the hand-over between the threads is violated; the test solve of the factors could not be done).\n");
++		}else{
++			printf(" *WARNING in spooles: the multi-threaded factorization failed the check of its result (relative residual of a test solve %.3e, limit %.1e%s).\n",
++			       eta,tol,bad?"; the bookkeeping of the hand-over between the threads is violated":"");
++		}
++		fea_free_factor(p);
++		if(attempt==0){
++			printf("                      The system of equations is factorized again with %d threads.\n\n",nthread);
++		}else{
++			printf("                      The system of equations is factorized again with ONE thread.\n\n");
++		}
++		return 1;
++	}
++	if(attempt==1){
++		if(unchecked){
++			printf("                      The repeated multi-threaded factorization is used without a verdict: a loss in the threads is NOT confirmed.\n\n");
++		}else{
++			printf("                      The repeated multi-threaded factorization passes the check (relative residual %.3e): threaded loss confirmed.\n\n",eta);
++		}
++	}
++	return 0;
++}
++
++/* link proof of the ordered assembly: ccx -v prints the marker of the patched
++   SPOOLES only if this function (the new one of the SPOOLES patch) is part of
++   the program - a ccx linked with an unpatched spooles.a does not link */
++
++int fea_spooles_ordered(void)
++{
++	void (*volatile p)(FrontMtx *,Chv *,IP **,char *,DV *,int,FILE *)=FrontMtx_updateOrdered;
++	return p!=NULL;
++}
++
++#endif
++
+ void spooles_factor(double *ad, double *au,  double *adb, double *aub, 
+              double *sigma,ITG *icol, ITG *irow, ITG *neq, ITG *nzs, 
+ 	     ITG *symmetryflag, ITG *inputformat, ITG *nzs3)
+@@ -463,6 +748,7 @@
+ 	int size = *neq;
+ 	int symmetryflagi4=*symmetryflag;
+ 	InpMtx *mtxA;
++	int fea_attempt=0;
+ 
+ 	if(symmetryflagi4==0){
+ 	    printf(" Factoring the system of equations using the symmetric spooles solver\n");
+@@ -477,6 +763,10 @@
+ 			"\n unable to open file spooles.out\n");
+ 	}
+ 
++#ifdef USE_MT
++ fea_retry: ;
++#endif
++
+ 	/*
+ 	 * Create the InpMtx object from the CalculiX matrix
+ 	 *      representation
+@@ -704,14 +994,35 @@
+ 	    
+ 	}
+ 	printf(" Using up to %d cpu(s) for spooles.\n\n", num_cpus);
+-	if (num_cpus > 1) {
++	/* FEA Studio change, 24. 11. 2026: once a factorization on ONE thread has failed the check as well (fea_check_off, the matrix is the
++	   cause) the check is off, and an unchecked factorization on the threads must not follow: the later systems of this process run on ONE thread */
++	if ((num_cpus > 1)&&(fea_attempt < 2)&&(!fea_check_off)) {
+ 	    /* do not use the multithreaded solver unless
+ 	     * we have multiple threads - avoid the
+ 		 * locking overhead
+ 		 */
+ 		factor_MT(&pfi, mtxA, size, msgFile,&symmetryflagi4);
++
++		/* FEA Studio change, 21. 11. 2026: check the factors, repeat the
++		   factorization (once more with the threads, then with one
++		   thread) when they are not those of the matrix */
++
++		if(fea_judge(&pfi,fea_attempt,num_cpus,ad,au,adb,aub,sigma,icol,
++			     irow,neq,nzs,symmetryflagi4,inputformat,*nzs3)){
++			fea_attempt++;
++			goto fea_retry;
++		}
+ 	} else {
+ 		factor(&pfi, mtxA, size, msgFile,&symmetryflagi4);
++
++		/* FEA Studio change, 21. 11. 2026: the factorization on one
++		   thread after two failed checks is checked too */
++
++		if(fea_attempt>=2){
++			fea_judge(&pfi,fea_attempt,num_cpus,ad,au,adb,aub,sigma,
++				  icol,irow,neq,nzs,symmetryflagi4,inputformat,
++				  *nzs3);
++		}
+ 	}
+ #else
+ 	printf(" Using 1 cpu for spooles.\n\n");
+@@ -809,6 +1120,7 @@
+         int symmetryflagi4=*symmetryflag;
+ 	int size = *neq;
+ 	InpMtx *mtxA;
++	int fea_attempt=0;
+ 
+ 	/* messages only for implicit calculations (for explicit calculations
+ 	   the output should be kept to a minimum because of performance
+@@ -829,6 +1141,10 @@
+ 			"\n unable to open file spooles.out\n");
+ 	}
+ 
++#ifdef USE_MT
++ fea_retry_rad: ;
++#endif
++
+ 	/*
+ 	 * Create the InpMtx object from the Calculix matrix
+ 	 *      representation
+@@ -1044,14 +1360,33 @@
+ 	if(*iexpl<=1){
+ 	  printf(" Using up to %d cpu(s) for spooles.\n\n", num_cpus);
+ 	}
+-	if (num_cpus > 1) {
++	/* FEA Studio change, 24. 11. 2026: after the verdict "the matrix" (fea_check_off) the later systems run on ONE thread (see spooles_factor) */
++	if ((num_cpus > 1)&&(fea_attempt < 2)&&(!fea_check_off)) {
+ 		/* do not use the multithreaded solver unless
+ 		 * we have multiple threads - avoid the
+ 		 * locking overhead
+ 		 */
+ 		factor_MT(&pfj, mtxA, size, msgFilf,&symmetryflagi4);
++
++		/* FEA Studio change, 21. 11. 2026: check the factors (see
++		   spooles_factor) */
++
++		if(fea_judge(&pfj,fea_attempt,num_cpus,ad,au,adb,aub,sigma,icol,
++			     irow,neq,nzs,symmetryflagi4,inputformat,*nzs)){
++			fea_attempt++;
++			goto fea_retry_rad;
++		}
+ 	} else {
+ 		factor(&pfj, mtxA, size, msgFilf,&symmetryflagi4);
++
++		/* FEA Studio change, 21. 11. 2026: the factorization on one
++		   thread after two failed checks is checked too */
++
++		if(fea_attempt>=2){
++			fea_judge(&pfj,fea_attempt,num_cpus,ad,au,adb,aub,sigma,
++				  icol,irow,neq,nzs,symmetryflagi4,inputformat,
++				  *nzs);
++		}
+ 	}
+ #else
+ 	if(*iexpl<=1){

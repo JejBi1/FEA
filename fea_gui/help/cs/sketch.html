@@ -1,0 +1,59 @@
+<h1>Náčrtník (1D / 2D bez CADu)</h1>
+<p class="lead">Nakreslete <b>2D řez</b> (rovinná napjatost, rovinná deformace, rotační symetrie) nebo <b>prutovou soustavu</b> přímo v programu: úsečky, oblouky,
+kružnice, obdélníky a lomené čáry z <b>psaných souřadnic</b> a <b>pojmenovaných parametrů</b>. Pro rychlé ruční kontroly, výuku a varianty.
+<b>Žádný řešič vazeb</b> tu není – bod leží tam, kam říkají jeho dva výrazy; změna parametru posune vše, co ho používá.</p>
+
+<h2>Spuštění</h2>
+<ul>
+<li><b>Soubor → Nový 2D model z náčrtu…</b> nebo <b>Nová prutová soustava z náčrtu…</b> (také tlačítka v kroku <a href="model.html">Model</a>).
+Zvolte typ úlohy, tloušťku (2D) nebo rovinu (pruty) a kreslete.</li>
+<li><b>Model → Upravit náčrt…</b> změní výkres existujícího modelu z náčrtu. <b>Nastavení zůstane</b>: vazby, zatížení, materiály a nastavení sítě
+sledují entity (viz níže).</li>
+<li>Nástroje → Moduly programu → <b>Náčrtník: import DXF</b> přidá volitelný balíček <i>ezdxf</i> pro import DXF; samotný náčrtník potřebuje jen modul
+<i>beams</i> (shapely).</li>
+</ul>
+
+<h2>Editor</h2>
+<table class="grid">
+<tr><th>Ovládací prvek</th><th>Co dělá</th></tr>
+<tr><td>Výběr / Delete</td><td>klik na entitu (Ctrl přidává), Delete maže; tabulka <b>Entity</b> je v souladu s obrázkem</td></tr>
+<tr><td>Úsečka, Lomená čára, Obdélník, Kružnice, Oblouk (3 body), Oblouk (střed)</td><td>klikněte, nebo napište body do vstupního řádku pod obrázkem. Klik se přichytí k existujícím bodům (pak je to <b>tentýž bod</b>: přesné spojení), středům úseček, mřížce a vodorovné / svislé přímce přes poslední bod</td></tr>
+<tr><td>Uzel / podpora (pruty)</td><td>bod prutové soustavy: vetknutí, kloub, posuvná podpora ve směru x nebo y, nebo prostý uzel (pro zatížení; bod uvnitř prutu ho tam rozdělí)</td></tr>
+<tr><td>Oříznout</td><td>zkrátí úsečku, oblouk nebo kružnici k nejbližším průsečíkům kolem kliknutí</td></tr>
+<tr><td>Posunout, Zrcadlit, Kopírovat</td><td>působí na vybrané entity: základní bod + cíl (nebo napsaný vektor <i>dx, dy</i>); Zrcadlit vytvoří zrcadlené kopie podle přímky ze dvou bodů; Kopírovat vytvoří <i>n</i> lineárních kopií</td></tr>
+<tr><td>Vstupní řádek</td><td><tt>x, y</tt> absolutně &nbsp; <tt>@dx, dy</tt> relativně k poslednímu bodu &nbsp; <tt>@r&lt;úhel</tt> polárně (stupně) &nbsp; <tt>P3</tt> existující bod. <b>Výrazy s parametry jsou povoleny</b>: <tt>W/2, d + 5</tt> – ukládají se tak, jak jsou napsány, takže náčrt sleduje své parametry</td></tr>
+<tr><td>Parametry</td><td>jméno = číslo nebo výraz v mm (<tt>L = 200</tt>, <tt>h = L/10</tt>); operátory <tt>+ - * / ** ( )</tt> (exponent do 8), funkce <tt>sin cos tan asin acos atan atan2 sqrt abs min max hypot rad deg</tt>, <tt>pi</tt> (úhly v radiánech; <tt>rad(30)</tt>)</td></tr>
+<tr><td>Jméno (Entity)</td><td>tak se jmenuje výběr hran entity <i>a také</i> podle jejího id (<tt>E3</tt>; strany obdélníku / lomené čáry <tt>E3.1</tt> … nebo <tt>jméno.1</tt> …). Použijte ho ve vazbách, zatíženích a zjemnění sítě</td></tr>
+<tr><td>Otvor / Samostatná část</td><td>uzavřená entita uvnitř oblasti je ve výchozím stavu otvor; <b>Samostatná část</b> z ní udělá zvláštní část (vložku s vlastním materiálem)</td></tr>
+<tr><td>Konstrukční</td><td>nakreslena jen jako pomůcka, není součástí geometrie</td></tr>
+<tr><td>Zkontrolovat</td><td>najde oblasti (2D) nebo pruty a první problém; <b>Použít náčrt</b> sestaví náčrt do modelu</td></tr>
+<tr><td>Import DXF…</td><td>úsečky, oblouky, kružnice a lomené čáry z výkresu DXF (jednotky ze souboru, oblouky z vypouklosti); spliny, elipsy, text a bloky se spočítají a přeskočí</td></tr>
+</table>
+<p>Myš: kolečko = zoom kolem kurzoru, prostřední tlačítko (nebo mezerník + levé) = posun, <b>F</b> = zobrazit vše, <b>Esc</b> ukončí nástroj, <b>Ctrl+Z / Ctrl+Y</b> zpět / znovu
+uvnitř editoru (po použití je to jediný krok ve studii).</p>
+
+<h2>2D náčrty</h2>
+<ul>
+<li>Uzavřené obrysy tvoří <b>oblasti</b>; každá oblast je <b>část</b> (pojmenujte ji v tabulce <i>Oblasti</i>, jinak se jmenují <i>Region 1</i> …). Úsečka, která oblast rozdělí,
+vytvoří dvě části s možností různých materiálů; kružnice nebo obdélník uvnitř oblasti je otvor.</li>
+<li><b>Rovinná napjatost / deformace</b>: část se vytáhne o tloušťku (souměrně podle roviny náčrtu); <b>rotační symetrie</b>: x = poloměr, y = osa (čerchovaně), část se otočí o 360°.
+Zatížení a reakce rotačního modelu jsou pro celý obvod. Nic nesmí ležet na x &lt; 0.</li>
+<li>2D výpočet je obvyklý (<a href="2d.html">2D řez</a>); vazby a zatížení se zadávají na hranách podle jmen v obvyklých krocích.</li>
+<li><b>Udělat 3D</b> (MCP <tt>fea_sketch_to_3d</tt>) změní oblasti na běžnou 3D studii vytažením nebo rotací.</li>
+</ul>
+
+<h2>Prutové náčrty</h2>
+<ul>
+<li>Body se stanou <b>uzly</b> (jmenují se jako bod, <tt>P2</tt>), úsečky a oblouky <b>pruty</b> (jmenují se jako entita, <tt>E3</tt>). Rovina je výchozí svislá XZ (x doprava, y nahoru = globální Z).</li>
+<li>Průřez a materiál podle entity nebo výchozí hodnota náčrtu; průřez změněný v kroku <a href="pruty.html">Pruty</a> zůstane, když se náčrt sestaví znovu. Podpory uzlů náčrtu spravuje náčrt.</li>
+<li>Uzly jsou drženy proti pohybu z roviny náčrtu (lze vypnout), takže rovinný rám zatížený ve své rovině řeší vlastní prutový řešič programu.</li>
+</ul>
+
+<h2>Změna parametru zachová nastavení</h2>
+<p>Použití změněného náčrtu jde přes přemapování geometrie programu (<a href="cad.html">výměna geometrie</a>): boční stěny každé entity se poznají podle <b>id entity</b>, ne hádáním,
+takže vazby, zatížení, materiály, zjemnění sítě a velikost sítě zůstanou. Co zmizelo (smazaná entita, zaniklá oblast) se ohlásí se jménem. Náčrt se ukládá do souboru studie; parametry jsou
+vstupy pozdější parametrické studie.</p>
+
+<h2>Chyby</h2>
+<p>Hlášení jmenuje entitu: <b>otevřený obrys</b> (s velikostí mezery a sousedem), lomená čára, která <b>protíná sama sebe</b>, volná čára, obrys <b>přes osu</b>,
+oblast s <b>nulovou plochou</b>. Dotčené entity jsou nakresleny červeně.</p>

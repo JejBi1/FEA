@@ -1,0 +1,202 @@
+# Tests of FEA Studio: lint (ruff) + installation with the project installer (installer/fea_setup.py, module profiles from
+# fea_core/modules.json) + fast tests (pytest default tier: not slow, not very_slow – pyproject addopts) + a few verification cases against analytical references.
+# Tests of optional modules that are not part of a profile skip themselves (tests/conftest.py).
+name: tests
+
+on:
+  push:
+    branches: [main]
+  pull_request:
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+concurrency:
+  group: tests-${{ github.workflow }}-${{ github.ref }}
+  cancel-in-progress: true
+
+env:
+  PYTHONIOENCODING: utf-8
+
+jobs:
+  lint:
+    name: ruff
+    runs-on: ubuntu-24.04
+    timeout-minutes: 10
+    steps:
+      - uses: actions/checkout@93cb6efe18208431cddfb8368fd83d5badbf9bfd   # v5.0.1
+        with:
+          persist-credentials: false
+      - name: ruff check (configuration in pyproject.toml)
+        run: pipx run --spec ruff==0.12.4 ruff check --output-format=github .
+
+  # Static type checking (P0.2): basedpyright in "basic" mode on fea_core + fea_gui. The findings that existed when it was introduced are
+  # recorded in .basedpyright/baseline.json, so the job fails on NEW errors only. The checker needs the pinned packages of pyproject.toml
+  # (no CalculiX, no Gmsh run, nothing is executed) in a Python 3.11 environment; optional modules that are not installed (numba, rslab,
+  # pychrono ...) only give warnings. After fixing old findings regenerate the baseline: python -m basedpyright --writebaseline
+  typecheck:
+    name: basedpyright
+    runs-on: ubuntu-24.04
+    timeout-minutes: 25
+    env:
+      UV_VERSION: "0.13.1"                  # as installer/fea_setup.py
+    steps:
+      - uses: actions/checkout@93cb6efe18208431cddfb8368fd83d5badbf9bfd   # v5.0.1
+        with:
+          persist-credentials: false
+      - name: Environment for type resolution (Python 3.11, the pinned packages of pyproject.toml)
+        run: |
+          # the same derivation as CONTRIBUTING.md ("Type checking"): dependencies + the extras gui, plots, report, beams, mcp + the checker's pin (dev extra)
+          python3 .github/scripts/typecheck_requirements.py > "$RUNNER_TEMP/typecheck-requirements.txt"
+          pipx run --spec "uv==$UV_VERSION" uv venv --python 3.11 "$RUNNER_TEMP/tc-venv"
+          pipx run --spec "uv==$UV_VERSION" uv pip install --python "$RUNNER_TEMP/tc-venv/bin/python" -r "$RUNNER_TEMP/typecheck-requirements.txt"
+      - name: basedpyright (configuration and baseline in pyproject.toml / .basedpyright/)
+        run: |
+          "$RUNNER_TEMP/tc-venv/bin/python" -m basedpyright --pythonpath "$RUNNER_TEMP/tc-venv/bin/python"
+
+  test:
+    name: ${{ matrix.os }} / ${{ matrix.profile }}
+    runs-on: ${{ matrix.os }}
+    timeout-minutes: 150
+    strategy:
+      fail-fast: false
+      matrix:
+        include:
+          # minimal = core only (+ the verify module with pytest): checks that the core runs without the optional modules
+          - os: ubuntu-24.04
+            profile: minimal
+            modules: verify
+            cases: V1 S1                        # U1 (fatigue) needs the accel module
+          - os: ubuntu-24.04
+            profile: standard
+            modules: verify mcp
+            cases: V1 U1 S1
+          - os: windows-2022
+            profile: standard
+            modules: verify mcp
+            cases: V1 U1 S1
+    defaults:
+      run:
+        shell: bash
+    steps:
+      - uses: actions/checkout@93cb6efe18208431cddfb8368fd83d5badbf9bfd   # v5.0.1
+        with:
+          persist-credentials: false
+
+      - name: System libraries (Linux; Gmsh needs GLU/X11 client libraries, Qt offscreen needs EGL/xkbcommon)
+        if: runner.os == 'Linux'
+        run: |
+          # the runner's mirror DNS fails now and then → retry the whole step a few times
+          pkgs="libglu1-mesa libxcursor1 libxft2 libxinerama1 libxrender1 libegl1 libgl1 libxkbcommon0 libfontconfig1 libdbus-1-3 curl bzip2 perl"
+          for i in 1 2 3 4; do
+            sudo apt-get -o Acquire::Retries=5 update -q \
+              && sudo apt-get -o Acquire::Retries=5 install -y -q --no-install-recommends $pkgs && exit 0
+            echo "apt failed (attempt $i), retrying in 30 s"; sleep 30
+          done
+          exit 1
+
+      # outside the checkout: tests list the untracked files of the repository (git ls-files --others)
+      - name: uv cache folder (read by installer/fea_setup.py)
+        run: echo "FEA_UV_CACHE_DIR=$RUNNER_TEMP/uv-cache" >> "$GITHUB_ENV"
+
+      - name: Cache of uv packages
+        uses: actions/cache@27d5ce7f107fe9357f9df03efb73ab90386fccae   # v5.0.5
+        with:
+          path: ${{ runner.temp }}/uv-cache
+          key: uv-${{ runner.os }}-${{ matrix.profile }}-${{ hashFiles('installer/locks/*.txt') }}
+          restore-keys: uv-${{ runner.os }}-${{ matrix.profile }}-
+
+      # CalculiX for Linux: the installer NEVER builds it – it unpacks the prebuilt archive that a release package carries. In a checkout
+      # that archive (gitignored) does not exist, so this job produces it exactly like a release does: restored from the cache, or on a
+      # miss built by installer/linux/build_ccx.sh in the explicit step below (minutes). The installer then finds it in
+      # installer/linux/prebuilt/ and unpacks it (the same code path as in a package). The result depends only on that script, the two lock
+      # files of the pinned conda-forge packages (ccx_toolchain.lock, ccx_deps.lock) and the patch – all of them are in the cache key.
+      - name: Cache of the prebuilt CalculiX archive (Linux)
+        id: ccx-cache
+        if: runner.os == 'Linux'
+        uses: actions/cache@27d5ce7f107fe9357f9df03efb73ab90386fccae   # v5.0.5
+        with:
+          path: installer/linux/prebuilt/ccx_2.23_linux_x86_64.tar.gz
+          key: ccx-linux-archive-${{ hashFiles('installer/linux/build_ccx.sh', 'installer/linux/ccx_toolchain.lock', 'installer/linux/ccx_deps.lock', 'installer/linux/ccx_rust.lock', 'installer/linux/patches/*.patch', 'installer/faer_ccx/Cargo.lock', 'installer/faer_ccx/Cargo.toml', 'installer/faer_ccx/src/*.rs', 'installer/faer_ccx/ccx/*', 'installer/faer_ccx/include/*') }}
+
+      - name: Build CalculiX (Linux, cache miss – a release tool, not part of the installer)
+        if: runner.os == 'Linux' && steps.ccx-cache.outputs.cache-hit != 'true'
+        env:
+          FEA_CCX_PASTIX: "0"      # the packages carry ccx_spooles only (licence question L4): the CI tests what ships, and builds faster
+        run: |
+          mkdir -p installer/linux/prebuilt
+          bash installer/linux/build_ccx.sh "$RUNNER_TEMP/ccx-out" "$RUNNER_TEMP/ccx-work" installer/linux/prebuilt/ccx_2.23_linux_x86_64.tar.gz
+          ls -l installer/linux/prebuilt
+
+      # CalculiX for Windows: like the Linux one, the installer NEVER downloads or builds it – it unpacks the prebuilt archive that a release package
+      # carries (the third-party ccx_static.exe of dhondt.de is gone, F13 step 5d). In a checkout that archive (gitignored) does not exist, so this job
+      # produces it as a release does: restored from the cache, or on a miss built by installer/windows/build_ccx.ps1 (the pinned MSYS2 toolchain is
+      # unpacked into the work folder, no installation; ~45 minutes once). The result depends only on the script, the toolchain lock and the patch.
+      - name: Cache of the prebuilt CalculiX archive (Windows)
+        id: ccx-win-cache
+        if: runner.os == 'Windows'
+        uses: actions/cache@27d5ce7f107fe9357f9df03efb73ab90386fccae   # v5.0.5
+        with:
+          path: installer/windows/prebuilt/ccx_2.23_windows_x86_64.zip
+          key: ccx-windows-archive-${{ hashFiles('installer/windows/build_ccx.sh', 'installer/windows/build_ccx.ps1', 'installer/windows/ccx_toolchain.lock', 'installer/windows/ccx_rust.lock', 'installer/windows/patches/*.patch', 'installer/faer_ccx/Cargo.lock', 'installer/faer_ccx/Cargo.toml', 'installer/faer_ccx/src/*.rs', 'installer/faer_ccx/ccx/*', 'installer/faer_ccx/include/*') }}
+
+      - name: Build CalculiX (Windows, cache miss – a release tool, not part of the installer)
+        if: runner.os == 'Windows' && steps.ccx-win-cache.outputs.cache-hit != 'true'
+        shell: pwsh
+        run: |
+          # the work folder outside the checkout (the toolchain is ~1 GB), the output archive where the installer looks for it; the source packages of the
+          # run-time libraries (270 MB) are for the release package only, the tests do not need them
+          powershell -NoProfile -ExecutionPolicy Bypass -File installer/windows/build_ccx.ps1 -Work "$env:RUNNER_TEMP\ccx-win-work" -Jobs 4 -SkipRuntimeSources
+          Get-ChildItem installer/windows/prebuilt
+
+      - name: Install (installer/fea_setup.py, profile ${{ matrix.profile }} + ${{ matrix.modules }})
+        run: |
+          # any Python >= 3.9 runs the installer; it downloads uv and its own Python 3.11 into tools/ and creates .venv
+          if [ "$RUNNER_OS" = "Windows" ]; then PY=python; else PY=python3; fi
+          "$PY" installer/fea_setup.py install ${{ matrix.modules }} --profile ${{ matrix.profile }} --quiet --lang en \
+            --no-shortcuts --no-mcp --no-fusion --no-check
+          if [ "$RUNNER_OS" = "Windows" ]; then echo "VPY=$GITHUB_WORKSPACE/.venv/Scripts/python.exe" >> "$GITHUB_ENV"
+          else echo "VPY=$GITHUB_WORKSPACE/.venv/bin/python" >> "$GITHUB_ENV"; fi
+
+      - name: Installed modules and solvers
+        run: |
+          "$VPY" -m fea_core.modules
+          "$VPY" -m fea_core.solvers
+          "$VPY" -c "from fea_core import config; p = config.find_ccx(); print('ccx:', p); assert p.exists(), p"
+          # nothing of Intel in any profile (F13): no MKL, Intel OpenMP or TBB package, and no ccx_i4 next to ccx
+          "$VPY" -c "import importlib.metadata as m, pathlib; from fea_core import config; bad = [d.metadata['Name'] for d in m.distributions() if (d.metadata['Name'] or '').lower().replace('_', '-') in ('mkl', 'intel-openmp', 'tbb')]; assert not bad, bad; assert not list(config.CCX_TOOLS.rglob('ccx_i4*'))"
+
+      # the standard profile contains the module direct = the direct solver rslab + the own matrix assembly (numba, module accel) and no NGSolve:
+      # the automatic solver choice (ngs_direct) and the tests that need rslab (tests/test_direct*.py, they skip themselves without it) must
+      # really run there, not skip
+      - name: The direct solver is installed (standard profile)
+        if: matrix.profile == 'standard'
+        run: |
+          "$VPY" -c "from fea_core import solvers; st = solvers.backend_status()['ngs_direct']; print(st); assert st['ok'], st"
+
+      - name: Fast tests (pytest, default tier)
+        run: |
+          if [ "$RUNNER_OS" = "Linux" ]; then export QT_QPA_PLATFORM=offscreen; fi    # no display on the runner
+          "$VPY" -m pytest -q -rs -p no:cacheprovider --junitxml="$RUNNER_TEMP/pytest-report.xml"
+
+      - name: Verification cases (${{ matrix.cases }})
+        run: |
+          "$VPY" -m verification.run_all ${{ matrix.cases }}
+
+      - name: Verification cases with the automatic solver (direct solver path)
+        if: matrix.profile == 'standard'
+        run: |
+          "$VPY" -m verification.run_all V1 V3 --backend auto
+
+      - name: Logs
+        if: failure()
+        uses: actions/upload-artifact@330a01c490aca151604b8cf639adc76d48f6c5d4   # v5.0.0
+        with:
+          name: logs-${{ matrix.os }}-${{ matrix.profile }}
+          path: |
+            install.log
+            ${{ runner.temp }}/pytest-report.xml
+            verification/out/report.json
+          if-no-files-found: ignore
+          retention-days: 7

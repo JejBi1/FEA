@@ -1,0 +1,483 @@
+{
+  "_comment": "Jediný zdroj pravdy o modulech programu: čte ho instalátor (installer/fea_setup.py) i program (fea_core/modules.py). pip = balíčky s přesnými verzemi (ověřené sady, viz installer/constraints.txt); pip_nodeps = bez závislostí; ext = vnější komponenty instalátoru (ccx, hypre, mystran…); import = moduly Pythonu, jejichž přítomnost značí nainstalovaný modul; size_mb = přibližné místo na disku po instalaci (Windows).",
+  "retired": {
+    "pardiso": "Removed in 1.4.2 (Intel MKL, PARDISO, CalculiX ccx_i4): nothing of Intel is shipped, downloaded or offered. An installation state or a command line that names the module is read and the name is skipped; the update removes the leftovers (installer/migrations.py)."
+  },
+  "profiles": {
+    "minimal": [
+      "core"
+    ],
+    "standard": [
+      "core",
+      "gui",
+      "plots",
+      "accel",
+      "direct",
+      "beams",
+      "sketch",
+      "report",
+      "motion"
+    ],
+    "full": [
+      "core",
+      "gui",
+      "plots",
+      "accel",
+      "direct",
+      "beams",
+      "sketch",
+      "report",
+      "mcp",
+      "ngsolve",
+      "hypre",
+      "motion",
+      "surrogate"
+    ]
+  },
+  "modules": {
+    "core": {
+      "title": {
+        "cs": "Jádro MKP (STEP → síť → CalculiX → výsledky, příkazová řádka)",
+        "en": "FEA core (STEP → mesh → CalculiX → results, command line)"
+      },
+      "desc": {
+        "cs": "Statika, teplo, vlastní frekvence, vzpěr, pruty, 2D, skořepiny, spoje a svary, kontroly. Řešič CalculiX (SPOOLES).",
+        "en": "Statics, heat, modes, buckling, beams, 2D, shells, joints and welds, checks. CalculiX solver (SPOOLES)."
+      },
+      "required": true,
+      "pip": [
+        "numpy==1.26.4",
+        "scipy==1.17.1",
+        "gmsh==4.15.2",
+        "psutil==7.2.2"
+      ],
+      "pip_nodeps": [
+        "cadquery-ocp==8.0.1.1.0",
+        "cadquery-ocp-proxy==8.0.1.1.0",
+        "vtk==9.6.2"
+      ],
+      "import": [
+        "numpy",
+        "scipy",
+        "gmsh",
+        "OCP",
+        "psutil"
+      ],
+      "ext": [
+        "ccx_static"
+      ],
+      "size_mb": {
+        "win": 693,
+        "linux": 960
+      }
+    },
+    "gui": {
+      "title": {
+        "cs": "Grafické rozhraní",
+        "en": "Graphical user interface"
+      },
+      "desc": {
+        "cs": "Okno programu s 3D pohledem, průvodci a nápovědou (Qt, bez prohlížeče WebEngine).",
+        "en": "Program window with 3D view, wizards and help (Qt, without the WebEngine browser)."
+      },
+      "requires": [
+        "core",
+        "plots"
+      ],
+      "pip": [
+        "PySide6_Essentials==6.11.2",
+        "shiboken6==6.11.2"
+      ],
+      "import": [
+        "PySide6.QtWidgets"
+      ],
+      "size_mb": {
+        "win": 80,
+        "linux": 95
+      }
+    },
+    "plots": {
+      "title": {
+        "cs": "Grafy a obrázky (matplotlib)",
+        "en": "Plots and images (matplotlib)"
+      },
+      "desc": {
+        "cs": "Grafy v GUI, obrázky výsledků pro protokol a MCP, řezy a voxely.",
+        "en": "Plots in the GUI, result images for reports and MCP, sections and voxels."
+      },
+      "requires": [
+        "core"
+      ],
+      "pip": [
+        "matplotlib==3.11.2"
+      ],
+      "import": [
+        "matplotlib"
+      ],
+      "size_mb": {
+        "win": 43,
+        "linux": 45
+      }
+    },
+    "accel": {
+      "title": {
+        "cs": "Urychlení (Numba): únava, 3D tisk, obrázky výsledků",
+        "en": "Acceleration (Numba): fatigue, 3D printing, result images"
+      },
+      "desc": {
+        "cs": "Únava (rainflow, kritická rovina), model 3D tisku a rychlé vykreslení výsledků bez GPU. Bez něj tyto části nejdou.",
+        "en": "Fatigue (rainflow, critical plane), 3D print model and fast GPU-free result rendering. Those parts do not run without it."
+      },
+      "requires": [
+        "core"
+      ],
+      "pip": [
+        "numba==0.68.0",
+        "llvmlite==0.50.0"
+      ],
+      "import": [
+        "numba"
+      ],
+      "size_mb": {
+        "win": 129,
+        "linux": 140
+      }
+    },
+    "direct": {
+      "title": {
+        "cs": "Přímý řešič (rslab) a vlastní sestavení matice",
+        "en": "Direct solver (rslab) and own matrix assembly"
+      },
+      "desc": {
+        "cs": "Přímý řešič rslab (čistý Rust, MIT) s vlastním sestavením matice tuhosti (Numba, modul accel): jedna faktorizace pro všechny zatěžovací stavy, i pro jediný; faktor ve float32 se zpřesněním, když je to rychlejší nebo když se float64 nevejde do paměti. Stejné sestavení matice používá řešič velkých modelů (modul hypre).",
+        "en": "rslab direct solver (pure Rust, MIT) with the own stiffness matrix assembly (Numba, module accel): one factorization for all load cases, also for a single one; float32 factor with refinement when it is faster or when float64 does not fit into memory. The large-model solver (hypre module) uses the same matrix assembly."
+      },
+      "requires": [
+        "core",
+        "accel"
+      ],
+      "pip": [
+        "rslab==1.14.0"
+      ],
+      "import": [
+        "rslab"
+      ],
+      "size_mb": {
+        "win": 11,
+        "linux": 12
+      }
+    },
+    "ngsolve": {
+      "title": {
+        "cs": "Pružná tělesa v mechanismech (NGSolve)",
+        "en": "Flexible bodies in mechanisms (NGSolve)"
+      },
+      "desc": {
+        "cs": "NGSolve pro pružná tělesa v mechanismech (matice M a K na naší síti pro Exudyn, Craig–Bamptonova redukce; potřebuje i modul motion). Lineární statika ho nepotřebuje.",
+        "en": "NGSolve for the flexible bodies of mechanisms (M and K on our mesh for Exudyn, Craig–Bampton reduction; needs the module motion as well). Linear statics does not need it."
+      },
+      "requires": [
+        "core",
+        "motion"
+      ],
+      "pip": [
+        "ngsolve==6.2.2608"
+      ],
+      "import": [
+        "ngsolve"
+      ],
+      "size_mb": {
+        "win": 170,
+        "linux": 193
+      }
+    },
+    "hypre": {
+      "title": {
+        "cs": "Řešič velkých modelů (hypre BoomerAMG, MPI)",
+        "en": "Large-model solver (hypre BoomerAMG, MPI)"
+      },
+      "desc": {
+        "cs": "Iterační řešič hypre (PCG + AMG, paměť roste lineárně) s vlastním sestavením matice; automaticky se volí, když se přímý řešič nevejde do volné paměti (a od 600 000 neznámých, když přímý řešič není nainstalován). Potřebuje MPI: Windows Microsoft MPI (instaluje se zvlášť, práva správce), Linux MPICH z prostředí hypre.",
+        "en": "Iterative hypre solver (PCG + AMG, memory grows linearly) with the own matrix assembly; selected automatically when the direct solver does not fit into the free memory (and from 600,000 unknowns when the direct solver is not installed). Needs MPI: Microsoft MPI on Windows (installed separately, administrator rights), MPICH from the hypre environment on Linux."
+      },
+      "requires": [
+        "core",
+        "accel"
+      ],
+      "pip": [
+        "mpi4py==4.1.2"
+      ],
+      "import": [
+        "mpi4py"
+      ],
+      "ext": [
+        "hypre",
+        "mpi"
+      ],
+      "check": "hypre",
+      "size_mb": {
+        "win": 72,
+        "linux": 210
+      }
+    },
+    "beams": {
+      "title": {
+        "cs": "Vlastní průřezy prutů (sectionproperties)",
+        "en": "Custom beam sections (sectionproperties)"
+      },
+      "desc": {
+        "cs": "Vlastnosti libovolného průřezu prutu z obrysu. Knihovna 471 profilů EN funguje i bez něj.",
+        "en": "Properties of an arbitrary beam cross-section from its outline. The library of 471 EN profiles works without it."
+      },
+      "requires": [
+        "core",
+        "plots"
+      ],
+      "pip": [
+        "shapely==2.2.0",
+        "more-itertools==11.2.0",
+        "rich==15.0.0"
+      ],
+      "pip_nodeps": [
+        "sectionproperties==3.10.2"
+      ],
+      "import": [
+        "sectionproperties"
+      ],
+      "size_mb": {
+        "win": 15,
+        "linux": 16
+      }
+    },
+    "sketch": {
+      "title": {
+        "cs": "Náčrtník 1D / 2D: import výkresů DXF (ezdxf)",
+        "en": "1D / 2D sketcher: DXF import (ezdxf)"
+      },
+      "desc": {
+        "cs": "Čáry, oblouky, kružnice a lomené čáry z výkresu DXF do náčrtu. Sám náčrtník (modely z čar a oblouků, parametry) funguje i bez něj, potřebuje jen modul beams (shapely).",
+        "en": "Lines, arcs, circles and polylines from a DXF drawing into a sketch. The sketcher itself (models drawn from lines and arcs, parameters) works without it; it needs only the module beams (shapely)."
+      },
+      "requires": [
+        "core",
+        "beams"
+      ],
+      "pip": [
+        "ezdxf==1.4.5"
+      ],
+      "import": [
+        "ezdxf"
+      ],
+      "size_mb": {
+        "win": 22,
+        "linux": 22
+      }
+    },
+    "surrogate": {
+      "title": {
+        "cs": "Náhradní model s chybovými pásy: Gaussovy procesy (scikit-learn)",
+        "en": "Surrogate model with error bars: Gaussian processes (scikit-learn)"
+      },
+      "desc": {
+        "cs": "Náhradní model výsledků parametrické studie (σ, posuv, hmotnost, frekvence) s kalibrovaným 90% pásem chyby. Model funguje i bez něj (radiální bázové funkce ze scipy se stejnou kalibrací pásu); Gaussův proces dává přesnější pásy při málo bodech.",
+        "en": "Surrogate model of the results of a parametric study (stress, displacement, mass, frequency) with a calibrated 90 % error band. The model works without it (scipy radial basis functions with the same band calibration); the Gaussian process gives tighter bands with few points."
+      },
+      "requires": [
+        "core"
+      ],
+      "pip": [
+        "scikit-learn==1.9.1"
+      ],
+      "import": [
+        "sklearn"
+      ],
+      "size_mb": {
+        "win": 45,
+        "linux": 48
+      }
+    },
+    "motion": {
+      "title": {
+        "cs": "Kinematika a dynamika mechanismů (Exudyn)",
+        "en": "Kinematics and dynamics of mechanisms (Exudyn)"
+      },
+      "desc": {
+        "cs": "Mechanismy tuhých těles: klouby, pohony, pružiny, tření v kloubech, reakce a převod okamžiků i průběhu do MKP a únavy.",
+        "en": "Rigid-body mechanisms: joints, drives, springs, joint friction, reactions and transfer of instants and histories to FEA and fatigue."
+      },
+      "requires": [
+        "core"
+      ],
+      "pip": [
+        "exudyn==1.13.6"
+      ],
+      "import": [
+        "exudyn"
+      ],
+      "size_mb": {
+        "win": 22,
+        "linux": 30
+      }
+    },
+    "chrono": {
+      "title": {
+        "cs": "Kontakt v mechanismu – Project Chrono (volitelný)",
+        "en": "Contact in mechanisms – Project Chrono (optional)"
+      },
+      "desc": {
+        "cs": "Řešič Chrono (prostředí conda-forge tools/chrono_env): kontakt trojúhelníkových sítí z CAD (vačky, dorazy, valení se skluzem), tření, restituce, valivý odpor.",
+        "en": "Chrono solver (conda-forge environment tools/chrono_env): contact of triangle meshes from CAD (cams, stops, rolling with slip), friction, restitution, rolling resistance."
+      },
+      "requires": [
+        "core",
+        "motion"
+      ],
+      "pip": [],
+      "import": [],
+      "ext": [
+        "chrono"
+      ],
+      "check": "chrono",
+      "size_mb": {
+        "win": 600,
+        "linux": 650
+      }
+    },
+    "native": {
+      "title": {
+        "cs": "Nativní soubory Inventor .ipt / .iam a Fusion .f3d (volitelný)",
+        "en": "Native Inventor .ipt / .iam and Fusion .f3d files (optional)"
+      },
+      "desc": {
+        "cs": "Otevře díly Inventoru (.ipt) a návrhy Fusionu (.f3d, .f3z) přímo, bez CADu a bez exportu STEP (vlastní čtečka jádra ShapeManager; převedený model se kontroluje). Sestavy Inventoru (.iam) s díly ve složce sestavy a sestavy Fusionu s polohami výskytů; spojovací součásti .iam jako virtuální šrouby. Neoficiální čtení formátů Autodesk – u důležitých modelů výsledek porovnejte s exportem STEP.",
+        "en": "Opens Inventor parts (.ipt) and Fusion designs (.f3d, .f3z) directly, without the CAD and without STEP export (own ShapeManager kernel reader; the converted model is checked). Inventor assemblies (.iam) with parts in the assembly folder and Fusion assemblies with occurrence positions; .iam fasteners as virtual bolts. Unofficial reading of Autodesk formats – compare important models with a STEP export."
+      },
+      "requires": [
+        "core"
+      ],
+      "pip": [],
+      "import": [],
+      "check": "native",
+      "size_mb": {
+        "win": 1,
+        "linux": 1
+      }
+    },
+    "report": {
+      "title": {
+        "cs": "Protokol Word (.docx)",
+        "en": "Word report (.docx)"
+      },
+      "desc": {
+        "cs": "Výpočetní protokol s obrázky, tabulkami a hodnocením v češtině nebo angličtině.",
+        "en": "Calculation report with images, tables and assessment in Czech or English."
+      },
+      "requires": [
+        "core",
+        "plots",
+        "accel"
+      ],
+      "pip": [
+        "python-docx==1.2.0"
+      ],
+      "import": [
+        "docx"
+      ],
+      "size_mb": {
+        "win": 11,
+        "linux": 12
+      }
+    },
+    "mcp": {
+      "title": {
+        "cs": "Server MCP a REST API pro AI agenty a CAD adaptéry",
+        "en": "MCP server and REST API for AI agents and CAD adapters"
+      },
+      "desc": {
+        "cs": "Přes 180 nástrojů pro LLM agenty (Claude, Cursor, VS Code…), REST pro adaptér Fusion.",
+        "en": "Over 180 tools for LLM agents (Claude, Cursor, VS Code…), REST for the Fusion adapter."
+      },
+      "requires": [
+        "core",
+        "plots",
+        "accel"
+      ],
+      "pip": [
+        "mcp==2.3.0",
+        "fastapi==0.143.0",
+        "uvicorn==0.54.0",
+        "python-multipart==0.0.32"
+      ],
+      "import": [
+        "mcp"
+      ],
+      "size_mb": {
+        "win": 42,
+        "linux": 45
+      }
+    },
+    "docs": {
+      "title": {
+        "cs": "Tvorba PDF příruček (Qt WebEngine)",
+        "en": "PDF manual generation (Qt WebEngine)"
+      },
+      "desc": {
+        "cs": "Jen pro vývojáře: znovu vytvoří PDF příručky. Hotová PDF jsou v balíčku (složka docs), běžný uživatel to nepotřebuje.",
+        "en": "Developers only: regenerates the PDF manuals. Ready PDFs are in the package (docs folder); normal users do not need it."
+      },
+      "requires": [
+        "gui"
+      ],
+      "pip": [
+        "PySide6_Addons==6.11.2",
+        "pypdfium2"
+      ],
+      "import": [
+        "PySide6.QtWebEngineCore"
+      ],
+      "size_mb": {
+        "win": 384,
+        "linux": 420
+      }
+    },
+    "verify": {
+      "title": {
+        "cs": "Ověřování a testy (pytest, rainflow, pyNastran)",
+        "en": "Verification and tests (pytest, rainflow, pyNastran)"
+      },
+      "desc": {
+        "cs": "Ověřovací úlohy V/U/S/W/T… a automatické testy. Křížové kontroly MYSTRAN potřebují navíc volitelný program MYSTRAN, který si stáhnete sami (FEA Studio ho nedodává).",
+        "en": "Verification cases and automated tests. The MYSTRAN cross-checks also need the optional program MYSTRAN, which you download yourself (FEA Studio does not ship it)."
+      },
+      "requires": [
+        "core",
+        "plots"
+      ],
+      "pip": [
+        "pytest==9.1.1",
+        "pytest-timeout==2.4.0",
+        "rainflow==3.2.0",
+        "httpx==0.28.1"
+      ],
+      "pip_nodeps": [
+        "pyNastran==1.4.1",
+        "cpylog==1.6.0",
+        "docopt-ng==0.9.0",
+        "colorama==0.4.6",
+        "FLife==2.2.2",
+        "fatpack==0.7.8",
+        "pyExSi==0.43.3"
+      ],
+      "import": [
+        "pytest"
+      ],
+      "ext": [
+        "mystran"
+      ],
+      "size_mb": {
+        "win": 30,
+        "linux": 30
+      }
+    }
+  }
+}

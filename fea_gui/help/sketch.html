@@ -1,0 +1,60 @@
+<h1>Sketcher (1D / 2D without CAD)</h1>
+<p class="lead">Draw a <b>2D section</b> (plane stress, plane strain, axisymmetric) or a <b>beam system</b> directly in the program: lines, arcs,
+circles, rectangles and polylines from <b>typed coordinates</b> and <b>named parameters</b>. For quick hand checks, teaching and variants.
+There is <b>no constraint solver</b> – a point is where its two expressions say; a parameter change moves everything that uses it.</p>
+
+<h2>Starting</h2>
+<ul>
+<li><b>File → New 2D model from sketch…</b> or <b>New beam system from sketch…</b> (also buttons in the <a href="model.html">Model</a> step).
+Choose the problem type, the thickness (2D) or the plane (beams) and draw.</li>
+<li><b>Model → Edit sketch…</b> changes the drawing of an existing sketch model. <b>The setup is kept</b>: constraints, loads, materials and
+mesh settings follow the entities (see below).</li>
+<li>Tools → Program modules → <b>Sketcher: DXF import</b> adds the optional <i>ezdxf</i> for the DXF import; the sketcher itself needs only the module
+<i>beams</i> (shapely).</li>
+</ul>
+
+<h2>The editor</h2>
+<table class="grid">
+<tr><th>Control</th><th>What it does</th></tr>
+<tr><td>Select / Delete</td><td>click an entity (Ctrl adds), Delete removes; the table <b>Entities</b> is in step with the picture</td></tr>
+<tr><td>Line, Polyline, Rectangle, Circle, Arc (3 points), Arc (centre)</td><td>click, or type the points in the entry line below the picture. A clicked point snaps to existing points (then it is <b>the same point</b>: exact connection), mid points, the grid and the horizontal / vertical line through the last point</td></tr>
+<tr><td>Node / support (beams)</td><td>a point of the beam system: fixed, pinned, roller_x, roller_y or a plain node (for a load; a point inside a member splits it there)</td></tr>
+<tr><td>Trim</td><td>cuts a line, arc or circle back to the nearest crossings around the click</td></tr>
+<tr><td>Move, Mirror, Copy</td><td>act on the selected entities: base point + target (or the typed vector <i>dx, dy</i>); Mirror makes mirrored copies about a line given by two points; Copy makes <i>n</i> linear copies</td></tr>
+<tr><td>Entry line</td><td><tt>x, y</tt> absolute &nbsp; <tt>@dx, dy</tt> relative to the last point &nbsp; <tt>@r&lt;angle</tt> polar (degrees) &nbsp; <tt>P3</tt> an existing point. <b>Expressions of the parameters are allowed</b>: <tt>W/2, d + 5</tt> – they are stored as written, so the sketch follows its parameters</td></tr>
+<tr><td>Parameters</td><td>name = number or expression in mm (<tt>L = 200</tt>, <tt>h = L/10</tt>); operators <tt>+ - * / ** ( )</tt> (exponent up to 8), functions <tt>sin cos tan asin acos atan atan2 sqrt abs min max hypot rad deg</tt>, <tt>pi</tt> (angles in radians; <tt>rad(30)</tt>)</td></tr>
+<tr><td>Name (Entities)</td><td>the selection of the edges of the entity is called like this <i>and</i> by its id (<tt>E3</tt>; the sides of a rectangle / polyline <tt>E3.1</tt> … or <tt>name.1</tt> …). Use it in constraints, loads and mesh refinement</td></tr>
+<tr><td>Hole / Own part</td><td>a closed entity inside a region is a hole by default; <b>Own part</b> makes it a separate part (an insert with its own material)</td></tr>
+<tr><td>Construction</td><td>drawn only as a help, not part of the geometry</td></tr>
+<tr><td>Check</td><td>finds the regions (2D) or members (beams) and the first problem; <b>Apply sketch</b> builds the sketch into the model</td></tr>
+<tr><td>Import DXF…</td><td>lines, arcs, circles and polylines of a DXF drawing (units from the file, bulge arcs); splines, ellipses, text and blocks are counted and skipped</td></tr>
+</table>
+<p>Mouse: wheel = zoom around the cursor, middle button (or Space + left) = pan, <b>F</b> = fit, <b>Esc</b> ends the tool, <b>Ctrl+Z / Ctrl+Y</b> undo / redo
+inside the editor (one step in the study when you apply).</p>
+
+<h2>2D sketches</h2>
+<ul>
+<li>The closed contours form <b>regions</b>; every region is a <b>part</b> (name it in the table <i>Regions</i>, or the parts are called <i>Region 1</i> …). A line that splits a region
+makes two parts that can have different materials; a circle or rectangle inside a region is a hole.</li>
+<li><b>Plane stress / plane strain</b>: the part is extruded by the thickness (symmetric about the sketch plane); <b>axisymmetric</b>: x = radius, y = the axis (drawn dash-dotted), the part is revolved by 360°.
+Loads and reactions of an axisymmetric model are for the whole circumference. Nothing may lie at x &lt; 0.</li>
+<li>The 2D analysis is the ordinary one (<a href="2d.html">2D section analysis</a>); constraints and loads are set on the edges by their names in the usual steps.</li>
+<li><b>Make 3D</b> (MCP <tt>fea_sketch_to_3d</tt>) turns the regions into a normal 3D study by extrusion or revolution.</li>
+</ul>
+
+<h2>Beam sketches</h2>
+<ul>
+<li>Points become <b>nodes</b> (named like the point, <tt>P2</tt>), lines and arcs become <b>members</b> (named like the entity, <tt>E3</tt>). The plane is by default the vertical plane XZ (x right, y up = global Z).</li>
+<li>Section and material per entity or the default of the sketch; a section changed in the <a href="pruty.html">Members</a> step stays when the sketch is built again. Supports of the sketch nodes are managed by the sketch.</li>
+<li>The nodes are held against motion out of the plane of the sketch (switchable), so a plane frame loaded in its plane is solved by the program's own beam solver.</li>
+</ul>
+
+<h2>Changing a parameter keeps the setup</h2>
+<p>Applying a changed sketch goes through the geometry remap of the program (<a href="cad.html">geometry replacement</a>): the side faces of every
+entity are recognised by the <b>entity id</b>, not by guessing, so constraints, loads, materials, mesh refinements and the mesh size are kept.
+What disappeared (a deleted entity, a vanished region) is reported with its name. The sketch is stored in the study file; the parameters are the
+inputs of a later parametric study.</p>
+
+<h2>Errors</h2>
+<p>The message names the entity: an <b>open contour</b> (with the size of the gap and the neighbour), a polyline that <b>crosses itself</b>, a free line, a contour <b>across the axis</b>,
+a region of <b>zero area</b>. The entities concerned are drawn red.</p>

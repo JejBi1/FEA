@@ -1,0 +1,9 @@
+CalculiX 2.23 (ccx) - GNU General Public License, version 2 only (the headers of the sources say "Free Software Foundation (version 2)";
+checked in ccx_2.23.c). Text: gpl-2.0.txt next to this file.
+
+Source code of the version used: https://www.dhondt.de/ccx_2.23.src.tar.bz2 (also in licenses/sources/ of every package).
+
+The programs of FEA Studio (Windows ccx_spooles.exe, Linux ccx_spooles) are NOT the binaries of dhondt.de: they are built from that source at
+release by installer/windows/build_ccx.ps1 and installer/linux/build_ccx.sh with the patches of installer/windows/patches/ and
+installer/linux/patches/ (SPOOLES 2.2, ARPACK-ng, LAPACK / BLAS and the faer solver statically). Details and the digests of every input:
+licenses/SOURCES.md.

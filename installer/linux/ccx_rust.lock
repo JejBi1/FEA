@@ -1,0 +1,13 @@
+# The Rust toolchain that builds libfea_faer.a (installer/faer_ccx; the faer solver of ccx_spooles): Rust 1.100.0, x86_64-unknown-linux-gnu, the official
+# tarballs of static.rust-lang.org (the dist folder 2026-11-12). The SHA-256 digests are the xz_hash values of the channel manifest of that release
+# (https://static.rust-lang.org/dist/2026-11-12/channel-rust-1.100.0.toml); build_ccx.sh checks them and unpacks the components into one prefix in the work
+# folder (the rust-installer layout, what install.sh would do). Nothing is installed on the machine and rustup is not used. The linker is the gcc of the
+# conda-forge toolchain of ccx_toolchain.lock (glibc 2.28 sysroot).
+# rustc -vV of this release: commit-hash 0ef1bc386059596dada8fb65b50425aab2ea637a, commit-date 2026-11-09, LLVM 23.1.5 (build_ccx.sh checks the commit hash).
+# rust_commit: 0ef1bc386059596dada8fb65b50425aab2ea637a
+# rust-src is not needed to build: the library sources (core, alloc, std, compiler_builtins and the crates they use) are the corresponding source of the parts of
+# the Rust standard library that are statically linked into the program; the release package ships it in licenses/sources/ (installer/make_package.py).
+rust f1d0b1dec81dab6f523cd098507763487b0d4bd7fd2c87582f154128719be03b https://static.rust-lang.org/dist/2026-11-12/rustc-1.100.0-x86_64-unknown-linux-gnu.tar.xz
+rust 7e29ce07d7c6e92d1826870575ba27d57fff6cb3e754aa57d99099cb88fab35d https://static.rust-lang.org/dist/2026-11-12/cargo-1.100.0-x86_64-unknown-linux-gnu.tar.xz
+rust 4591b6486594ded52ecd6135db95bf9355bbd3ca7a380888b141528bbcf9a5d4 https://static.rust-lang.org/dist/2026-11-12/rust-std-1.100.0-x86_64-unknown-linux-gnu.tar.xz
+rustsrc 107afa7819b500c573b21a160b08f1a20bc2dfd99550717e1ffbbdb09da7ec6e https://static.rust-lang.org/dist/2026-11-12/rust-src-1.100.0.tar.xz

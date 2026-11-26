@@ -1,0 +1,11 @@
+# Source of the GCC runtime that goes with the Linux ccx_spooles: libgcc and libgfortran (with libbacktrace) are linked statically into the program,
+# lib/libgomp.so.1 and lib/libquadmath.so.0 are shipped next to it. Their binaries come from the conda-forge packages of ccx_toolchain.lock (GCC 16.2.0), all
+# built from conda-forge/ctng-compilers-feedstock at the commit below. The source archive, its SHA-256 and the download URLs are the ones of the recipe inside
+# those packages (info/recipe/ of the package `recipe_package`, which is itself pinned by SHA-256 in ccx_toolchain.lock). installer/make_package.py puts the
+# archive and that recipe (with its patches) into licenses/sources/ of the Linux packages and stops when the recipe does not name this digest.
+# build_ccx.sh does not use this file. A new toolchain = a new line here (tests/test_linux_sources.py compares the versions).
+# gcc_version: 16.2.0
+# recipe_package: libgomp
+# recipe_feedstock_commit: 9130f5e7a99ff6de8041ce7b9542d5454e863689
+# <gccsrc> <sha256> <url> [<mirror url> ...]
+gccsrc 071d00a097579e5ef7ce97fc4a9e58e73fd3503c0a013c765c970370a5a53b9b https://ftp.gnu.org/gnu/gcc/gcc-16.2.0/gcc-16.2.0.tar.gz https://mirrors.ocf.berkeley.edu/gnu/gcc/gcc-16.2.0/gcc-16.2.0.tar.gz

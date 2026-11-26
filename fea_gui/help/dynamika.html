@@ -1,0 +1,52 @@
+<h1>Dynamics</h1>
+<p class="lead">Modes, harmonic, transient, random vibration (ASD) and shock (response spectrum): modes (direct analysis or CalculiX) + modal
+superposition. Added mass is entered here.</p>
+
+<p class="warn"><b>Damping is uncertain (±50 %)</b>; double ζ halves the resonance peak. Measure it (hammer test, decay) with
+<b>From measurement…</b>; indicative ζ: <a href="treni.html">Friction and damping</a>.</p>
+
+<h2>Procedure</h2>
+<ol>
+<li>Check <b>compute dynamics</b>; modes cover 1.5–2× the highest excitation frequency, effective mass in the excited direction ≥ 90 % (checked).</li>
+<li><b>Damping</b>: modal ζ (default 2 %), Rayleigh (ζ at two frequencies), structural η (harmonic only, η = 2ζ), or per material.</li>
+<li>Switch on a response, set the <b>excitation</b>: force = load case × history, or base motion (g / mm/s², or mm) along an axis
+(all supports move with the base).</li>
+<li>Add <b>probes</b> (point or faces) for FRF, time history, PSD.</li>
+<li>Run in Solve: “Dynamics: …” items, Dynamics chart tab.</li>
+</ol>
+
+<h2>Response types</h2>
+<table class="grid">
+<tr><th>Response</th><th>Input</th><th>Output</th></tr>
+<tr><td>Harmonic (sine)</td><td>frequency range, points (denser at resonances), history vs. frequency, phase; sweep rate [oct/min], sweeps</td><td>field at frequency and phase, amplitude over phase, envelope, FRF in probes, sweep fatigue (dn/df = 60/(R·ln 2) cycles/Hz)</td></tr>
+<tr><td>Transient (in time)</td><td>duration, step (≤ T_min/20), history: step, rectangular and half-sine pulse, displacement S-curve (axis start); settling tolerance. Piecewise linear base displacement d(t) = impulses Δv_k·δ(t − t_k) at the kinks, integrated exactly.</td><td>field in time, envelope, probe histories, settling time</td></tr>
+<tr><td>Random vibration</td><td>ASD [g²/Hz] points, slopes dB/oct, axis, duration [h], spectral fatigue (Dirlik, Tovo–Benasciutti, narrow-band)</td><td>RMS displacements, von Mises RMS (Segalman, informative) and 3σ, damage D, life, PSD in probes</td></tr>
+<tr><td>Shock</td><td>pulse (half-sine, sawtooth, trapezoid) A [g], τ, or SRS table; CQC / SRSS, missing mass (ZPA)</td><td>combined displacements and von Mises, pulse SRS, optional transient response</td></tr>
+<tr><td>Prestressed modal</td><td>preload case; optional <b>prestress with NLGEOM</b></td><td>modes with stress stiffening; total reaction exact, split between supports approximate. *FREQUENCY in CalculiX uses the reference (undeformed) geometry; codes that use the deformed geometry give slightly different frequencies (fractions of a percent).</td></tr>
+</table>
+
+<h2>Test profiles (structure only)</h2>
+<p><b>Test profile</b> menu: IEC 60068-2-6 (sine), -2-64 (random), -2-27 (shock), -2-47 (mounting).
+<b>No levels, ranges or durations are built in</b> – take them from the standard. The “IEC 60068-2-6: const. displacement /
+acceleration” generator takes x̂ [mm] and a [g], gives f_c = √(a/x̂)/2π and the acceleration table.</p>
+
+<h2>Added mass</h2>
+<ul>
+<li><b>Point mass</b> [kg] at the centre of gravity: rigid coupling (also Ixx, Iyy, Izz [kg·m²]; stiffens the face) or distributing (translational only).</li>
+<li><b>Surface mass</b> [kg/m²] over a face (PCB, coating).</li>
+<li>Acts in gravity, rotation, frequencies, dynamics.</li>
+</ul>
+
+<h2>Modes: direct analysis or CalculiX</h2>
+<p>The modes of the basis (and the natural frequencies of the Solve step) come from the <b>direct analysis</b> where it can do the study: the program's own mass and stiffness matrices, one rslab factorization and the ARPACK Lanczos iteration; the static corrections of the response are solved from the same factor. The number of modes is <i>proved</i> (Sturm count = inertia of K − σM) and every pair has its residual checked, so a repeated or clustered frequency cannot be silently missed. A free body returns its six rigid-body modes at 0 Hz. CalculiX *FREQUENCY stays for prestress, Campbell diagram, buckling, cyclic symmetry, bolts (their beam elements have no mass matrix), beams, contact and shells, and when the direct solver is missing or does not fit into the memory; a failed direct analysis continues in CalculiX and says why. A <b>small problem</b> stays in CalculiX under Automatic (DOF × (modes + 10) below 7·10⁵ – e.g. 20 000 DOF with 10 modes): the direct analysis needs about 6 s to start its two processes, CalculiX starts at once; from there the direct analysis is faster (100 modes of 66 000 DOF: 37 s against 355 s). Choose <b>Direct</b> to force it.</p>
+<p>Choose the engine in <b>Solve → Solver → Natural frequencies</b> (Automatic, Direct, CalculiX). <b>Verify with CalculiX</b> runs the same modes in CalculiX on the same mesh and compares frequencies, effective masses and the MAC of the shapes (repeated modes as a subspace); the table is in the results and the report.</p>
+<p class="tip">CalculiX is itself accurate only to its ARPACK tolerance: its lowest frequencies agree with the direct ones to 1e-6, the 12th to about 5e-5, the highest of 100 modes to about 1e-3 on a coarse mesh – the direct values equal the dense solution of the same matrices to 1e-9.</p>
+
+<h2>Results</h2>
+<ul>
+<li><b>Harmonic</b>: frequency slider, phase φ, “absolute” = displacement + base motion; “Amplitude over phase” ignores φ; envelope = maximum over frequencies and where.</li>
+<li><b>Transient</b>, <b>Random</b> (RMS, 3σ, damage, life), <b>Shock</b>, <b>mode shapes</b>.</li>
+<li><b>Dynamics</b> tab: FRF, time history, response PSD, input ASD, pulse SRS, reactions; mode table (frequency, damping,
+effective mass; click = shape in 3D).</li>
+</ul>
+<p class="tip">Not combinable with contact (linear model needed), the 2D section or shells.</p>

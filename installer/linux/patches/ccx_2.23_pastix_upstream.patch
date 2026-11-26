@@ -1,0 +1,75 @@
+--- a/pastix.c
++++ b/pastix.c
+@@ -29,6 +29,9 @@
+ #include <string.h>
+ #include "CalculiX.h"
+ #include "pastix.h"
++/* upstream PaStiX has neither pastixResetSteps nor pastixAllocMemory (fork PaStiX4CalculiX only) */
++#define pastixResetSteps(d) ((void)(d))
++#define pastixAllocMemory(p, size, gpu) (*(p) = malloc(size))
+ 
+ /* next 3 lines are for the simulateous use of PARDISO and PaStiX */
+ 
+@@ -243,8 +246,7 @@
+     piparm[IPARM_REFINEMENT]             = PastixRefineGMRES;
+ 
+ 
+-	piparm[IPARM_REUSE_LU] 				= firstIter ? 0 : 1;
+-	piparm[IPARM_REUSE_LU] 				= forceRedo ? 2 : 1;
++	/* upstream PaStiX 6.4 has no IPARM_REUSE_LU */
+ 	
+     piparm[IPARM_GPU_MEMORY_PERCENTAGE] 	= 95;
+     piparm[IPARM_GPU_MEMORY_BLOCK_SIZE] 	= 64 * 1024;
+@@ -289,6 +291,7 @@
+ 	
+ 	// perform reordering, analysis and symbolic factorization if it's more than 1 equation
+     if(spm->n > 1){
++	    spm->baseval = 1; spmBase( spm, 0 );   /* ccx index arrays are 1-based; upstream PaStiX needs the true base in spm->baseval and 0-based arrays for SCOTCH (the fork accepted 1-based) */
+ 	    pastix_task_analyze( pastix_data, spm );
+     }
+ }
+@@ -307,7 +310,7 @@
+ 	if(*neq != neqPrev || *inputformat != inputformatPrev)
+ 		forceRedo = 1;
+ 	
+-	redo = forceRedo ? 1 : 0;
++	redo = 1;      /* upstream PaStiX: no reuse of the analysis (pastixResetSteps) */
+ 	
+ 	if(!redo){
+ 		nzsTotal = 0;
+@@ -778,7 +781,7 @@
+ 	pastix_init(ad, au, adb, aub, sigma, icol, irow, neq, nzs, symmetryflag, inputformat, jq, nzs3);
+     gpu = 0;
+     piparm[IPARM_GPU_NBR]=0;
+-    pastix_data->piparm[IPARM_GPU_NBR]=0;
++    /* upstream pastix_data is opaque (the fork has a piparm array in it); the local piparm[IPARM_GPU_NBR] is set on the line above */
+ 	pastix_factor(ad, au, adb, aub, sigma, icol, irow, neq, nzs, symmetryflag, inputformat, jq, nzs3);
+ }
+ 
+@@ -836,7 +839,7 @@
+ 			buffer[i] = (float) x[i];
+         }
+ 		
+-		rc = pastix_task_solve( pastix_data, *nrhs, buffer, spm->n );
++		rc = pastix_task_solve( pastix_data, spm->n, *nrhs, buffer, spm->n );
+ 
+ 		#pragma omp parallel for
+ 		for(i = 0; i < (*nrhs) * (*neq); i++){
+@@ -846,7 +849,7 @@
+         buffer = NULL;
+ 	}
+ 	else{
+-		rc = pastix_task_solve( pastix_data, *nrhs, x, spm->n );
++		rc = pastix_task_solve( pastix_data, spm->n, *nrhs, x, spm->n );
+ 	}
+ 
+     // check for NaN in the solution
+@@ -938,7 +941,7 @@
+ void pastix_cleanup(ITG *neq,ITG *symmetryflag){
+ 	if( redo && !firstIter ){
+         if(spm->values == aupastix) spm->values = NULL;
+-        if(spm->values == spm->valuesGPU) spm->valuesGPU = NULL;
++        /* upstream spm has no valuesGPU */
+         if(spm->colptr == icolpastix) spm->colptr = NULL;
+         if(spm->rowptr == irowpastix) spm->rowptr = NULL;
+ 		spmExit( spm );

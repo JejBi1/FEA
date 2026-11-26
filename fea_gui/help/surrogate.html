@@ -1,0 +1,71 @@
+<h1>Surrogate model with error bars</h1>
+<p class="lead">After a <a href="vysledky.html#parametricka">parametric study</a> the program can answer <b>“what is the maximum stress / displacement / mass / first
+frequency for these parameter values”</b> in milliseconds, with an <b>error bar that was checked</b>, and it <b>refuses</b> to answer where no analysis exists.
+It does not replace the finite element analysis: it interpolates between analyses that were done.</p>
+
+<h2>How to get one</h2>
+<ol>
+<li><b>Tools → Parametric study…</b>, mode <b>Latin hypercube</b>: give every numeric parameter a <b>range</b> (<tt>lo; hi</tt>; at most 5 of them) and the number of points
+(the default is 40; a model of 2 parameters needs at least 19 <i>converged</i> points, 3 parameters 23, 4 parameters 27, 5 parameters 31 – 2 to 3 times more is better; up to 200 points per study). The points are spread evenly over the box
+(the same <b>seed</b> gives the same points). A material or a print pattern is a <b>category</b>: it gets its own model. The parameters can be loads, materials, the mesh size
+and – with a model drawn in the <a href="sketch.html">sketcher</a> – any <b>sketch parameter</b>: the geometry is rebuilt, meshed and analysed for every point with the setup kept.</li>
+<li>Tab <b>Surrogate model → Fit surrogate model</b>. About 20 % of the points – <b>at least 9</b> – are <b>held out</b>: they are never used for the fit, they check and calibrate the error band. Nine is the least that can
+guarantee a 90 % band; with fewer the band says what it really guarantees (<i>n</i> / (<i>n</i> + 1), 86 % for 6 points) and the model is never called reliable.</li>
+<li>The tab <b>Quality</b> shows for every result how good the model is on the held-out points; the tab <b>Explore</b> has a slider per parameter with the live prediction, a curve with its band or a 2D map (blank where the model does not answer).</li>
+</ol>
+
+<h2>What the error bar means</h2>
+<p>The band is a <b>split-conformal prediction interval</b>: the model (a Gaussian process, or – without the module <i>surrogate</i> – a radial-basis interpolation) predicts the value
+and a local scale; the held-out points give the factor by which the band must be widened so that it contains 90 % of them. For new points of the same design the band then holds in at least
+<b>90 % of the cases</b> – <b>on average over the analysed region</b>: it is not a statement about one corner of it. Near the edges of the parameter ranges the coverage can be lower (measured 0.83–0.89
+in the outer shell against 0.95 overall, in the review of this feature), in the middle it is higher; an answer within 5 % of an edge of a parameter carries a warning and is <b>not marked reliable</b>. The guarantee does not depend on how good the regression assumptions are – a poor model just gets a wide band.</p>
+<table class="grid">
+<tr><th>Column (tab Quality)</th><th>Meaning</th></tr>
+<tr><td>Fit / held-out</td><td>number of points that fitted the model / that were held out (they calibrate the band)</td></tr>
+<tr><td>R² (held-out), Median error</td><td>accuracy of the prediction on the held-out points (relative error of the value)</td></tr>
+<tr><td>Band factor</td><td>how many predicted standard deviations the band is wide; about 1.6 is a Gaussian process that knows its error, much more says that its σ was too optimistic</td></tr>
+<tr><td>Band level</td><td>the coverage that the calibration guarantees: 90 % with at least 9 held-out points, otherwise <i>n</i> / (<i>n</i> + 1) – this level, not 90 %, is what the tables, the answers of MCP and the report state</td></tr>
+<tr><td>Coverage (CV)</td><td>share of the training points inside the band in a cross-validation (leave one out up to 100 training points, else 10-fold) – a check of the calibrated band. It uses the hyperparameters of the fit to all points, so it is slightly optimistic</td></tr>
+<tr><td>Reliable</td><td><b>NO</b> when fewer than 9 points were held out, when the R² on the held-out points is below 0.9 (not tested for a result that is practically constant: its spread below the band and the band within ±1 % of the value), or when the cross-validated coverage is clearly below the level (below 80 %, and below the level minus 1.645 standard errors). The prediction is still given, with a warning. A correct model fails this now and then – the realised coverage of 9 to 20 held-out points is itself uncertain</td></tr>
+</table>
+
+<h2>Where it answers, what it refuses and warns about</h2>
+<p>The surrogate answers only <b>where converged analyses exist</b> – the range of the usable points, not the range that was requested:</p>
+<ul>
+<li><b>Outside the range of the converged points</b> of a parameter: refused. If a part of the range failed (a thin ligament that does not mesh), the fit says so and names the region, and the model does not answer there.</li>
+<li><b>Outside the convex hull</b> of the converged points (2 or more parameters), <b>in a hole</b> of the design (inside an empty region larger than the gap scale of the design – 2 median spacings, or more for an irregular design – and deeper than a quarter of a spacing from its rim, or farther from the nearest analysed point than that scale allows) and <b>next to a failed analysis</b> or an analysis that has no value of this result: refused. A point at the rim of a hole (within a quarter of a spacing of it) is answered, with a warning, and is <b>not marked reliable</b>: the analyses lie on one side of it only. A hole smaller than the natural gaps of a random design cannot be told apart from them, and a feature of the response that is narrower than the spacing of the points is invisible to every surrogate.
+With 4–5 parameters the hull of a Latin hypercube covers only about half of the box (the corners lie outside); analyse the corners too if they matter.</li>
+<li>MCP: <tt>extrapolate=true</tt> predicts anyway with the warning EXTRAPOLATION and <b>no guarantee</b> (every result is marked not reliable). The value box of a parameter accepts values beyond the slider to show the refusal.</li>
+<li><b>A design that does not span the parameters</b> (mode <i>list</i> with two numeric parameters is a line): refused at the fit.</li>
+<li><b>A parameter with few levels</b> (mode <i>grid</i> with 2 to 5 values of a parameter): the model answers only AT those values – what the response does between three levels is not known, whatever the other parameters do; a query between them is refused (the fit says so). From 6 distinct values on a parameter is interpolated; an anisotropic grid (many values of one parameter, few of another) is refused between its coarse rows as well.</li>
+<li><b>A one-at-a-time design</b> (the star: every point differs from the base point in one parameter only) <b>is fitted, but answers only ON its lines</b> – the interaction of the parameters was never analysed, so every query off the lines is refused and the fit warns. Use mode <i>Latin hypercube</i> for a surrogate of the whole region.</li>
+<li><b>Too small a training set</b>: the model is not fitted (4 points per parameter + 2 for the fit, and 9 held out). Fewer than 10 fitted points per parameter give a warning.</li>
+<li><b>The study changed</b> after the sweep (geometry, loads, constraints, materials not swept, mesh settings): the model is <b>stale</b> – the answers say so and are not reliable, “Verify” is off, the fit refuses the old sweep. A new parametric study or a new study drops the surrogate. A swept load factor hides only the one common factor of the loads it scales; a changed direction, one force of several changed, a moved application point, another temperature or another case's load makes the model stale.</li>
+<li>An unknown category (a material that was not in the study), a failed analysis (the point is left out of the fit), a parameter that never changes (left out of the model).</li>
+</ul>
+<p class="warn"><b>The error bars cover the interpolation between the analysed points and the mesh noise only.</b> They do NOT cover scatter of the material, manufacturing tolerances, loads that differ from the
+study or modelling assumptions. The coverage is an average over the analysed region, and the bars are valid only where analyses exist and for the study they were fitted to. The same text stands in the answers of the MCP tools and in the report.</p>
+
+<h2>Check a point, add more points</h2>
+<ul>
+<li><b>Verify this point with FEM</b> runs one full analysis at the slider values (the point must lie inside the analysed region), compares it with the band (inside / outside) and <b>adds the point to the training set</b> (the model is refitted;
+the hold-out set stays the same, and a point that the model itself chose never becomes a calibration point). A point beyond the analysed region is refused: it would widen the box beyond what the calibration covers – run a new study over the larger range.</li>
+<li><b>Suggest next points</b> proposes the points inside the analysed region where the model is least informed (the predictive σ of the Gaussian process, or the distance to the nearest analysed point for the radial basis);
+<b>Analyse suggested points</b> runs them and refits.</li>
+</ul>
+
+<h2>Saved, reported, automated</h2>
+<ul>
+<li>The model is saved in the project file <tt>.fea</tt> (<tt>surrogate.npz</tt>: the design points, the split, the fitted hyperparameters, the fingerprint of the study and the sweep – no pickle). The file is read like any foreign file: its sizes, types and ranges are checked before anything is read,
+and the band, the accuracy and the verdict are <b>recomputed</b> from the stored split (a file cannot forge a narrow band). A damaged file never stops a project from opening: the surrogate is dropped with a message. A Gaussian-process model is restored exactly without scikit-learn (the prediction is plain numpy).</li>
+<li>The <a href="protokol.html">Word report</a> gets the section <b>Surrogate model</b>: parameters and ranges of the analysed points, the validation table, the held-out points with the band, whether the study changed since, the limitations.</li>
+<li><b>Optional module</b> <i>surrogate</i> (scikit-learn, BSD-3): the Gaussian process with native error estimates (scikit-learn only optimises its hyperparameters; the first fit loads it, about 25 MB more in the program). The surrogate works without it (scipy radial basis, the same calibration of the band).
+The results of the two backends differ slightly; the file records which one was used.</li>
+<li>MCP (group <i>results</i>): <tt>fea_param_study_run</tt> with <tt>mode="lhs"</tt> and <tt>bounds</tt> per parameter, <tt>fea_surrogate_fit</tt> (kpis, validation_fraction, seed, backend),
+<tt>fea_surrogate_predict</tt> (params → value, lower, upper, level, warnings), <tt>fea_surrogate_info</tt> (validation table, stale, suggested next points).</li>
+</ul>
+
+<h2>Verification</h2>
+<p>SU1: stress of a plate with a hole over hole radius and width (40 analyses, 30 fitted + 10 held out) against 20 new random analyses in the region where the model answers (85 % of the box): median error 0.024 %, 20 of 20 inside the band; the
+analyses themselves agree with Heywood / Peterson K<sub>t</sub> to 0.53 %. SU2: tip deflection of a cantilever over length, thickness, depth and Young's modulus (80 analyses; the hull covers 47 % of the 4-parameter box): median error 0.29 %, 20 of 20 inside the band;
+the analyses agree with Timoshenko beam theory to 1.6 %. SU3: a categorical material (96 analyses, 24 per material, one model per material): the displacement ratios of the materials equal the ratios of the moduli to 0.10 % and 0.14 %, u(2.6) / u(0.8) of the steel plate is 3.27 against 3.25, three refusals (outside the range, an unknown material) and the extrapolation warning. (Radial-basis backend; every number is a single run of the checks that stand in <tt>verification/surrogate_cases.py</tt>.)</p>

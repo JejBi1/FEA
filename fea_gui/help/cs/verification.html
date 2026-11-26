@@ -1,0 +1,26 @@
+<h1>Ověření proti nezávislým referencím</h1>
+<p class="lead">FEA Studio zveřejňuje sadu ověřovacích úloh, v nichž se každý výsledek porovnává s <b>referencí, která nepochází z FEA Studia</b> – analytickým řešením, příručkovým nebo normovým vzorcem, publikovaným řešením nebo open-source řešičem MYSTRAN. U každé úlohy je buď citované dílo, nebo – u elementárního vztahu – uveden vztah z prvních principů (stránka takovou úlohu označí „vztah uveden, dílo necitováno“). U každé úlohy je veličina, zdroj reference, hodnota z FEA Studia, rozdíl, tolerance a síť. Dialog <b>O programu</b> ukazuje aktuální počet („N veřejných ověřovacích úloh, všechny v toleranci“).</p>
+
+<p><a href="fea:verification_page">Otevřít stránku s ověřením</a> (<code>docs/verification/index.html</code> ve složce programu; stejné tabulky jsou v <code>README.md</code> a <code>results.csv</code> vedle ní).</p>
+
+<h2>Co stránka obsahuje</h2>
+<ul>
+<li><b>Tabulky podle oblastí</b>: lineární statika, vedení tepla a teplotní napětí, vlastní frekvence / vzpěr / dynamika, kontakty, šroubové a svarové spoje, únava, tištěné díly, pruty a rámy, 2D řezy a skořepiny, plasticita, mechanismy.</li>
+<li><b>Typ reference</b> u každé úlohy: analytické řešení (Lamé, teorie nosníků, Fourierův zákon, Eulerův vzpěr …), příručka nebo norma (součinitele koncentrace napětí, korelace pro konvekci, pravidla EN / VDI / IIW), publikované řešení (Hertz, Hetényi, Lechnickij, Miles, Neuber, Findley …) nebo MYSTRAN.</li>
+<li><b>Křížová kontrola s MYSTRAN</b>: stejná síť (zhrubená ×2) a uzlové zatížení se řeší v CalculiX a v MYSTRAN, který má vlastní sestavení matic, okrajové podmínky i řešič; posuvy a reakce se musí shodovat do 10<sup>-3</sup>.</li>
+<li><b>MYSTRAN není součástí FEA Studia</b>: je to program třetí strany, který žádný balíček neobsahuje a instalátor ho nestahuje. Chcete-li úlohy s MYSTRAN spouštět sami, stáhněte ho z <code>https://www.mystran.com</code> (fórum, Download) a uložte ve složce programu jako <code>tools/mystran/mystran.exe</code> (Linux <code>tools/mystran/mystran</code>). Bez něj se úlohy, jejichž referencí je MYSTRAN, uvedou jako nespuštěné („not run – MYSTRAN not installed“) a ostatní křížově kontrolované úlohy se označí jako bez křížové kontroly MYSTRAN. Řádky na zveřejněné stránce pocházejí z běhu s tímto programem. Vydání před verzí 1.5.1 tento program obsahovala: aktualizace z takové verze tuto kopii ze složky <code>tools/mystran</code> odstraní (i tu, kterou jste tam pod stejným jménem souboru uložili sami), stáhněte ho tedy znovu; kopie uložená po aktualizaci zůstane.</li>
+<li><b>Údaje o běhu</b>: verze programu, datum, verze CalculiX a MYSTRAN, platforma a doba výpočtu. Úlohy, které na platformě snímku nelze spustit (například mortarový kontakt Hertzovy úlohy ve Windows), jsou uvedeny s důvodem; nikdy se nepočítají jako splněné.</li>
+</ul>
+<p class="tip"><b>Jak číst toleranci:</b> výsledek z metody konečných prvků se od analytické hodnoty liší chybou diskretizace sítě, proto má každá kontrola vlastní toleranci (posuvy obvykle 1–3 %, napětí mimo singularity 5 %). Úloha je v toleranci jen tehdy, když projdou <b>všechny</b> její kontroly.</p>
+
+<h2>Co se nezveřejňuje</h2>
+<p>Úloha bez reference mimo program se nezveřejňuje: vlastní kontroly rovnováhy a účetnictví programu (i řádky zveřejněné úlohy, které jen opakují zadané zatížení jako reakci), porovnání dvou výpočtů téhož modelu, zkoušky zapojení vstupních tabulek a kontroly varovných hlášení zůstávají v testovací sadě (<code>python -m pytest</code>, <code>verification.run_all</code>), ale neprezentují se jako ověření. Některé zveřejněné úlohy obsahují vedle kontrol s referencí i několik takových kontrol vnitřní shody; na stránce nejsou vypsány, ale také musí projít.</p>
+<p class="warn"><b>Poznámka:</b> ověřená úloha neověřuje <i>váš</i> model. Konvergenci sítě, okrajové podmínky a singularity vlastní geometrie je třeba posoudit zvlášť (viz <a href="sit.html">Síť</a> a <a href="vysledky.html">Výsledky</a>).</p>
+
+<h2>Znovuvytvoření stránky</h2>
+<ul>
+<li><code>python -m verification.run_public</code> spustí všechny zveřejněné úlohy (asi hodinu; <code>--quick</code> vynechá dlouhé kontaktní úlohy; úloha rázu KK4 trvá hodiny a spouští se jen s <code>--only KK4</code>) a přepíše <code>docs/verification/</code>. Potřebuje CalculiX a Gmsh (balíčky Pythonu: modul „Ověřování“) a pro úlohy s MYSTRAN také MYSTRAN, který si stáhnete sami (viz výše).</li>
+<li><code>python -m verification.public_report</code> jen přepíše stránku z uložených výsledků posledního běhu.</li>
+<li>Úlohy a jejich reference jsou definovány v <code>verification/catalogue.py</code>; úloha průběžné integrace „verification“ spouští sadu v Linuxu (týdně rychlou sadu, při každém značkovaném vydání celou) a výslednou stránku uchová jako artefakt.</li>
+</ul>
+<p>Viz také: <a href="testovani.html">Testování programu</a> (úlohy, které si můžete sestavit sami v okně).</p>

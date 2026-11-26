@@ -1,0 +1,33 @@
+Build fix of CalculiX 2.23 for the mingw-w64 UCRT toolchain (GPL-2.0, like CalculiX itself). Applied by installer/windows/build_ccx.sh with
+`patch -p1` in the folder that contains CalculiX/ccx_2.23/.
+
+Both files begin with an old-style declaration at file scope (NOT a call - nothing is executed):
+
+    #ifdef __WIN32
+    _set_output_format(_TWO_DIGIT_EXPONENT);
+    #endif
+
+that the old MSVCRT headers accepted as an implicit-int declaration. With the UCRT headers of the current mingw-w64 the line is an error (the
+function is declared with a prototype in <stdio.h>, and gcc 14+ rejects a declaration without parameter types). The UCRT always prints exponents
+with two digits at least, which is what the line was meant to ensure for the old runtime. No solver code is changed.
+
+--- a/CalculiX/ccx_2.23/src/ccx_2.23.c
++++ b/CalculiX/ccx_2.23/src/ccx_2.23.c
+@@ -16,7 +16,6 @@
+ /*     Foundation, Inc., 675 Mass Ave, Cambridge, MA 02139, USA.         */
+
+ #ifdef __WIN32
+-_set_output_format(_TWO_DIGIT_EXPONENT);
+ #endif
+
+ #ifdef CALCULIX_MPI
+--- a/CalculiX/ccx_2.23/src/ccx_2.23step.c
++++ b/CalculiX/ccx_2.23/src/ccx_2.23step.c
+@@ -16,7 +16,6 @@
+ /*     Foundation, Inc., 675 Mass Ave, Cambridge, MA 02139, USA.         */
+
+ #ifdef __WIN32
+-_set_output_format(_TWO_DIGIT_EXPONENT);
+ #endif
+
+ #ifdef CALCULIX_MPI

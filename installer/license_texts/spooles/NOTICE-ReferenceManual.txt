@@ -1,0 +1,13 @@
+This release of the package is totally within the public domain; 
+there are absolutely no licensing restrictions as with other
+software packages.
+The development of this software was funded by 
+DARPA\footnote{DARPA Contract DABT63-95-C-0122.} 
+and the DoD\footnote{DoD High Performance Computing
+   Modernization Program Common HPC Software Support Initiative.}
+with the express purpose that
+others (academic, government, industrial and commercial) could
+easily incorporate the data structures and algorithms into
+application codes.
+All we ask is an acknowledgement in derivative codes and any
+publications from research that uses this software.

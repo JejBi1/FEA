@@ -1,0 +1,169 @@
+[build-system]
+requires = ["setuptools>=77"]     # PEP 639: license = SPDX expression (since setuptools 77)
+build-backend = "setuptools.build_meta"
+
+[project]
+name = "fea-studio"
+dynamic = ["version"]
+description = "FEA Studio – finite element analysis on CalculiX / Gmsh with CAD integration"
+requires-python = ">=3.11,<3.12"
+license = "GPL-3.0-or-later"
+license-files = ["LICENSE", "LICENSE-EXCEPTIONS.md", "THIRD_PARTY_LICENSES.md"]
+# core; optional modules = extras below (identical to fea_core/modules.json, checked by tests/test_modules.py).
+# The normal installation goes through installer/fea_setup.py (version locks, slimming, CalculiX) – pip install -e . is for development.
+dependencies = [
+    "numpy==1.26.4",
+    "scipy==1.17.1",
+    "gmsh==4.15.2",
+    "psutil==7.2.2",
+    "cadquery-ocp==8.0.1.1.0",
+]
+
+[project.optional-dependencies]
+gui = [
+    "PySide6_Essentials==6.11.2",
+    "shiboken6==6.11.2",
+]
+plots = [
+    "matplotlib==3.11.2",
+]
+accel = [
+    "numba==0.68.0",
+    "llvmlite==0.50.0",
+]
+direct = [
+    "rslab==1.14.0",
+]
+ngsolve = [
+    "ngsolve==6.2.2608",
+]
+hypre = [
+    "mpi4py==4.1.2",
+]
+beams = [
+    "shapely==2.2.0",
+    "more-itertools==11.2.0",
+    "rich==15.0.0",
+    "sectionproperties==3.10.2",
+]
+sketch = [
+    "ezdxf==1.4.5",
+]
+surrogate = [
+    "scikit-learn==1.9.1",
+]
+report = [
+    "python-docx==1.2.0",
+]
+motion = [
+    "exudyn==1.13.6",
+]
+chrono = []                 # conda environment tools/chrono_env (installer), not pip
+native = []                 # program code only (fea_core.native_cad – .ipt / .f3d without CAD)
+mcp = [
+    "mcp==2.3.0",
+    "fastapi==0.143.0",
+    "uvicorn==0.54.0",
+    "python-multipart==0.0.32",
+]
+docs = [
+    "PySide6_Addons==6.11.2",
+    "pypdfium2",
+]
+verify = [
+    "pytest==9.1.1",
+    "pytest-timeout==2.4.0",
+    "rainflow==3.2.0",
+    "httpx==0.28.1",
+    "pyNastran==1.4.1",
+    "cpylog==1.6.0",
+    "docopt-ng==0.9.0",
+    "colorama==0.4.6",
+    "FLife==2.2.2",
+    "fatpack==0.7.8",
+    "pyExSi==0.43.3",
+]
+dev = [
+    "pytest",
+    "rainflow",
+    "httpx",
+    "basedpyright==1.40.2",      # static type checking (CI job "typecheck"); dev / CI tool only, never part of an installation
+]
+
+[tool.setuptools.dynamic]
+version = {attr = "fea_core.__version__"}
+
+[tool.setuptools.packages.find]
+include = ["fea_core*", "fea_gui*", "examples*", "verification*"]
+
+[tool.setuptools.package-data]
+fea_core = ["*.json", "data/*.json", "i18n/*.json", "i18n/*.md"]
+fea_gui = ["help/*.html", "help/*.png", "help/*.css", "help/cs/*.html", "help/cs/*.png", "help/cs/*.json"]
+
+[tool.ruff]
+# Lint only (no formatter): a conservative rule set for real errors. CI: .github/workflows/tests.yml (job "lint").
+target-version = "py311"
+line-length = 160
+extend-exclude = [
+    "scratch",
+    "tools",
+    "dist",
+    "verification/abaqus_extract*.py",  # run by the Python 2.7 of Abaqus
+    "verification/build_docs_abaqus_report.py",
+    "verification/generate_*.py",
+    "verification/make_*.py",
+    "verification/patch_build_docs.py",
+    "verification/prepare_dashboard.py",
+    "verification/update_report_solvers.py",
+]
+
+[tool.ruff.lint]
+# F = pyflakes (undefined names, unused imports / variables, ...), E9 = syntax errors, B = selected bugbear checks
+# that point at real bugs (loop variables, mutable defaults, useless expressions, return in finally, ...).
+# (B023 "function uses loop variable" is not selected: in this code base the closures are called inside the loop – 41 false positives.)
+select = ["F", "E9", "B003", "B004", "B006", "B012", "B015", "B016", "B018", "B020", "B021", "B025",
+          "B029", "B030", "B032", "B033", "B035"]
+ignore = [
+    "F403", "F405",                     # star imports (re-export modules)
+]
+
+[tool.ruff.lint.per-file-ignores]
+"__init__.py" = ["F401"]               # re-exports
+"fea_core/calc/convection.py" = ["F401"]  # adapter that re-exports fea_core.calc.thermal_convection
+"tests/**" = ["B018", "F811", "F841"]  # bare expressions used to trigger errors; pytest fixtures imported and used as arguments
+"verification/**" = ["F841"]           # reference scripts keep intermediate quantities of the hand calculation
+
+[tool.pytest.ini_options]
+testpaths = ["tests"]
+# default run = the fast tests; `pytest -m slow` / `-m very_slow` / `-m ""` (everything) override this -m
+addopts = "-m 'not slow and not very_slow'"
+markers = [
+    "slow: verification and end-to-end tests with Gmsh and CalculiX (seconds to ~1.5 min each; pytest -m slow)",
+    "very_slow: long verification cases (several minutes to ~1 h, or the optional Chrono environment; pytest -m very_slow)",
+    "timeout: per-test time limit of pytest-timeout (tests/conftest.py sets defaults when the plugin is installed)",
+]
+
+[tool.basedpyright]
+# Static type checking (basedpyright = pyright with a pure-Python wheel, no Node.js to install). Dev / CI tool only, like ruff:
+# CI job "typecheck" in .github/workflows/tests.yml, local run: `python -m basedpyright` (see CONTRIBUTING.md). The findings that
+# existed when the checker was introduced are recorded in .basedpyright/baseline.json, so the gate fails on NEW errors only; every
+# fix of an old one is a reason to regenerate it (python -m basedpyright --writebaseline).
+pythonVersion = "3.11"
+pythonPlatform = "Windows"            # fixed, so the result does not depend on the OS of the machine that runs the check
+typeCheckingMode = "basic"
+include = ["fea_core", "fea_gui"]
+exclude = ["**/__pycache__", "fea_gui/help"]
+failOnWarnings = false
+# high-signal rules, listed explicitly (a change of the mode must not silently drop them)
+reportCallIssue = "error"
+reportArgumentType = "error"
+reportAttributeAccessIssue = "error"
+reportGeneralTypeIssues = "error"
+reportReturnType = "error"
+reportUndefinedVariable = "error"
+reportOptionalMemberAccess = "error"
+reportOptionalSubscript = "error"
+reportOptionalCall = "error"
+# optional third-party modules (numba, rslab, pychrono, zstandard, pypdfium2 ...) are not installed in the CI environment
+reportMissingImports = "warning"
+reportMissingModuleSource = "none"

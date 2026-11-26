@@ -1,0 +1,25 @@
+# spouštěče: .bat musí mít CRLF, shell skripty LF (jinak „bad interpreter“ na Linuxu)
+*.bat text eol=crlf
+*.cmd text eol=crlf
+*.sh text eol=lf
+fea-studio text eol=lf
+installer/fea_setup.py text eol=lf
+*.ps1 text eol=crlf
+# makra CAD: import do editoru VBA (SOLIDWORKS) potřebuje CRLF – ukládat bez převodu konců řádků, aby CRLF zůstalo
+# i v balíčku z gitu (make_package --ref) a v klonu s jiným core.autocrlf
+*.bas -text
+*.iLogicVb -text
+# texty licencí třetích stran se ukládají bajtově (SHA-256 v installer/license_texts/SOURCES.md)
+installer/license_texts/** -text
+# patches are applied with patch(1) on Linux: stored byte for byte (LF)
+installer/linux/patches/*.patch -text
+# lock files of the Linux ccx build are read by build_ccx.sh (bash) – LF in every checkout
+*.lock text eol=lf
+# patches of the Windows CalculiX build are applied with patch(1): stored byte for byte (LF)
+installer/windows/patches/*.patch -text
+# sources of the faer solver of the Windows / Linux ccx: stored byte for byte (LF) in every checkout (build_ccx.sh hashes them into manifest.json and make_package.py compares
+# the hashes with the blobs of the commit; a CRLF checkout on Windows made them differ)
+installer/faer_ccx/Cargo.toml -text
+installer/faer_ccx/ccx/* -text
+installer/faer_ccx/include/* -text
+installer/faer_ccx/src/** -text

@@ -1,0 +1,831 @@
+#!/usr/bin/env python3
+"""Collects the licences of the third-party packages of FEA Studio (standard library only).
+
+    python installer/collect_licenses.py [--out FOLDER] [--venv .venv]
+
+Output (by default `licenses/` in the project root; `make_package.py` packs it into every package as `licenses/`):
+    python/<package>-<version>/   licence files of the Python packages from their dist-info (locks windows-x86_64 and linux-x86_64)
+    external/<component>/         texts of the components that are not Python packages – from installer/license_texts/ (downloaded from the official
+                                  sources, see license_texts/SOURCES.md) and from local files (tools/, .venv/hypre_env);
+                                  nothing is downloaded from the internet
+    EXTERNAL.md                   components outside Python and data: version, licence, source, how they are used
+    SOURCES.md                    sources of the shipped GPL / LGPL binaries (archives in sources/ – added by make_package.py –,
+                                  URLs with SHA-256). The sources travel with the binaries: there is no written offer. A build that leaves them out
+                                  is marked NOT FOR DISTRIBUTION (mark_not_for_distribution)
+    README.md                    what the folder contains, links to the sources of the GPL components, summary table of the Python packages
+
+Python packages whose wheel has no licence file (gmsh, cadquery-ocp, ngsolve-openblas) get their texts from `PYTHON_EXTRA`.
+An installed package without a licence file = a warning (the function `collect` returns them; the exit code stays 0).
+Missing venv or lock = exit code 1.
+"""
+from __future__ import annotations
+
+import argparse
+import datetime
+import re
+import shutil
+import sys
+from importlib import metadata
+from pathlib import Path
+
+ROOT = Path(__file__).resolve().parents[1]
+PLATFORMS = ("windows-x86_64", "linux-x86_64")
+NOT_INSTALLED = "unknown – not installed"
+TEXTS_DIR = ("installer", "license_texts")                  # downloaded from the official sources, SHA-256 in SOURCES.md
+LICENSE_NAME = re.compile(r"^(LICEN[CS]E|COPYING|NOTICE|COPYRIGHT|THIRD.?PARTY)", re.IGNORECASE)
+PIN = re.compile(r"^([A-Za-z0-9_.\-]+)==([^\s;#]+)")
+
+# Components outside the Python packages (EXTERNAL.md). "texts" = file patterns in installer/license_texts/ (downloaded from the official sources,
+# see license_texts/SOURCES.md; they are copied into external/<component>/); "local" = patterns of files with a licence text that are
+# only in this tree (tools/, .venv/hypre_env) – the same content is not copied twice.
+EXTERNAL = [
+    {"name": "CalculiX (ccx)", "slug": "calculix", "version": "2.23", "licence": "GPL-2.0",
+     "source": "https://www.dhondt.de/ccx_2.23.src.tar.bz2 (source, also in `sources/` of the package – see SOURCES.md). The programs are built from it at "
+               "release, never at installation: Windows installer/windows/build_ccx.ps1 with four patches in installer/windows/patches/ (CalculiX: "
+               "ccx_2.23_ucrt_build.patch = a build fix, ccx_2.23_spooles_serial_solve.patch = serial triangular solve and a checked multi-threaded factorization, a "
+               "change of the solver logic, ccx_2.23_faer.patch = the faer solver in front of SPOOLES; SPOOLES: spooles_2.2_ordered_assembly.patch = reproducible "
+               "assembly), Linux installer/linux/build_ccx.sh with the same patches without the build fix (installer/linux/patches/)",
+     "use": "separate process – FEM solver (`tools/calculix`): packages carry `ccx_spooles.exe` (Windows) and `ccx_spooles` (Linux)",
+     "texts": ["calculix/*", "_gnu/gpl-2.0.txt"], "local": []},
+    {"name": "SPOOLES", "slug": "spooles", "version": "2.2",
+     "licence": "public domain (statements in the SPOOLES 2.2 documentation: “entirely within the public domain; there are no licensing restrictions”); the "
+                "authors ask for an acknowledgement: SPOOLES 2.2 (Cleve Ashcraft, Roger Grimes et al., Boeing Phantom Works, funded by DARPA); its file Utilities/src/iohb.c "
+                "(Harwell-Boeing reader of NIST, K. A. Remington) carries a permission notice that must appear in the supporting documentation (spooles/NOTICE-iohb.c.txt)",
+     "source": "https://www.netlib.org/linalg/spooles/spooles.2.2.tgz (netlib); used by the builds in installer/windows/build_ccx.sh and installer/linux/build_ccx.sh",
+     "use": "equation solver in `ccx_spooles.exe` / `ccx_spooles` (static)", "texts": ["spooles/*"], "local": []},
+    {"name": "faer (Rust) and the crates of its C interface", "slug": "faer", "version": "0.24.4",
+     "licence": "MIT (faer, its own C interface `installer/faer_ccx`, and every crate: MIT, or dual licensed with MIT / BSD-2-Clause / Zlib – the MIT, BSD or Zlib alternative is used; "
+                "CalculiX is GPL-2.0-only and cannot take Apache-2.0 only code; the table of all crates: external/faer/CRATES.md, their texts next to it, generated by installer/faer_ccx/make_crate_licences.py)",
+     "source": "https://codeberg.org/sarah-quinones/faer (crates.io: faer 0.24.4); the exact crates with SHA-256: `installer/faer_ccx/Cargo.lock`, SOURCES.md",
+     "use": "direct solver of symmetric matrices (Cholesky / LDL^T / LBL^T, ordering of SPOOLES; unsymmetric ones with LU only on request) in `ccx_spooles.exe` / `ccx_spooles` (static library, F17)",
+     "texts": [], "local": [], "tree": "installer/faer_ccx/licenses"},       # CRATES.md refers to crates/<name>-<version>/
+    {"name": "Rust standard library (in libfea_faer.a)", "slug": "rust-std", "version": "1.100.0",
+     "licence": "MIT or Apache-2.0 (used under MIT); `compiler_builtins` also contains code under Apache-2.0 with the LLVM exception (the LLVM project states that this exception "
+                "makes the licence compatible with GPL-2.0); third-party notices of the standard library: COPYRIGHT-library.html",
+     "source": "https://www.rust-lang.org/ (the source of the linked library: `rust-src` of the pinned release, in `sources/` of the Windows and Linux packages, see SOURCES.md)",
+     "use": "run time of the Rust code of the faer solver (statically linked into `ccx_spooles.exe` / `ccx_spooles`)", "texts": ["rust-std/*"], "local": []},
+    {"name": "ARPACK-ng", "slug": "arpack-ng", "version": "3.9.1", "licence": "BSD-3-Clause", "source": "https://github.com/opencollab/arpack-ng",
+     "use": "eigenvalues in `ccx_spooles.exe` / `ccx_spooles` (static)", "texts": ["arpack-ng/*"], "local": []},
+    {"name": "LAPACK / BLAS (reference)", "slug": "lapack-blas", "version": "3.12.0", "licence": "BSD-3-Clause",
+     "source": "https://www.netlib.org/lapack/ (text: https://github.com/Reference-LAPACK/lapack, tag v3.12.0)",
+     "use": "linear algebra in `ccx_spooles.exe` / `ccx_spooles` (static)", "texts": ["lapack/*"], "local": []},
+    {"name": "libbacktrace (in libgfortran of GCC)", "slug": "libbacktrace", "version": "–", "licence": "BSD-3-Clause",
+     "source": "https://github.com/ianlancetaylor/libbacktrace (the GCC copy: libbacktrace/ in https://gcc.gnu.org/)",
+     "use": "backtrace support inside libgfortran, statically linked in `ccx_spooles.exe` (Windows) and in `ccx_spooles` (Linux, `-static-libgfortran`)",
+     "texts": ["libbacktrace/*"], "local": []},
+    {"name": "mingw-w64 (CRT, winpthreads)", "slug": "mingw-w64", "version": "14.0.0.r598 (MSYS2)",
+     "licence": "ZPL-2.1 (runtime; marked parts BSD / public domain / LGPL), winpthreads: MIT and BSD-3 (Lockless Inc.)",
+     "source": "https://www.mingw-w64.org/ (exact source: MSYS2 source package mingw-w64-crt-14.0.0.r598.ge3d18511f-1.src.tar.zst, see SOURCES.md)",
+     "use": "C runtime and POSIX threads layer of `ccx_spooles.exe` (statically linked; built with the MSYS2 UCRT64 toolchain pinned in "
+            "installer/windows/ccx_toolchain.lock)", "texts": ["mingw-w64/*"], "local": []},
+    {"name": "libgcc, libgfortran, libgomp, libquadmath (GCC runtime)", "slug": "libgomp-libquadmath", "version": "16.2.0 (Windows: MSYS2; Linux: conda-forge)",
+     "licence": "libgcc, libgfortran, libgomp: GPL-3.0 with GCC Runtime Library Exception 3.1; libquadmath: LGPL-2.1 or later (libquadmath/COPYING.LIB in the GCC "
+                "sources; notices of the 19 files whose objects are linked into `ccx_spooles.exe`: NOTICE-libquadmath.txt)",
+     "source": "https://gcc.gnu.org/ (exact source in `sources/` of the packages of each platform, see SOURCES.md: Windows – the MSYS2 source package "
+               "mingw-w64-gcc-16.2.0-7.src.tar.zst; Linux – gcc-16.2.0.tar.gz and the conda-forge recipe with its patches)",
+     "use": "run-time libraries of `ccx_spooles.exe` (Windows, statically linked: libgcc, libgfortran, libgomp AND libquadmath – 19 objects that libgfortran needs for the "
+            "formatted output of REAL(16); LGPL-2.1 section 6, see SOURCES.md for relinking with a modified library) and OpenMP / quad-precision "
+            "libraries of `ccx_spooles` (Linux package, shared libraries `libgomp.so.1`, `libquadmath.so.0`)",
+     "texts": ["gcc-runtime/*"], "local": []},
+    {"name": "gcc-libs, libgfortran (hypre_env)", "slug": "gcc-libs-libgfortran", "version": "–",
+     "licence": "GPL-3.0 with GCC Runtime Library Exception 3.1", "source": "https://gcc.gnu.org/ (GCC source)",
+     "use": "runtime libraries of the hypre environment (`.venv/hypre_env`, Windows)",
+     "texts": ["gcc-runtime/COPYING3", "gcc-runtime/COPYING.RUNTIME"],
+     "local": [".venv/hypre_env/Library/share/licenses/**/*"]},
+    {"name": "Gmsh", "slug": "gmsh", "version": "4.15.2",
+     "licence": "GPL-2.0-or-later (exception for combining with Netgen, METIS, OpenCASCADE, ParaView)",
+     "source": "https://gmsh.info/src/ (source); texts: external/gmsh/ (the PyPI wheel has no licence file in its dist-info)",
+     "use": "meshing in a separate process (Python API, `fea_core.mesh.worker`)", "texts": ["gmsh/*", "_gnu/gpl-2.0.txt"], "local": []},
+    {"name": "hypre", "slug": "hypre", "version": "3.2.0", "licence": "Apache-2.0 or MIT", "source": "https://github.com/hypre-space/hypre",
+     "use": "AMG solver in a separate MPI process (hypre module; conda-forge `.venv/hypre_env`)", "texts": ["hypre/*"], "local": []},
+    {"name": "MPICH", "slug": "mpich", "version": "5 (conda-forge)", "licence": "MPICH (BSD-like)", "source": "https://www.mpich.org/",
+     "use": "`mpiexec` and MPI on Linux (hypre module)", "texts": ["mpich/*"], "local": []},
+    {"name": "MS-MPI", "slug": "ms-mpi", "version": "10", "licence": "Microsoft MS-MPI Redistributable (Microsoft licence; sources and SDK MIT)",
+     "source": "https://learn.microsoft.com/message-passing-interface/microsoft-mpi (MIT text: https://github.com/microsoft/Microsoft-MPI)",
+     "use": "`mpiexec` on Windows (hypre module; installed by the user with consent, not in the package – the user accepts the terms of the "
+            "redistributable runtime when installing it)", "texts": ["ms-mpi/*"], "local": []},
+    {"name": "Project Chrono (PyChrono)", "slug": "project-chrono", "version": "10.0.0", "licence": "BSD-3-Clause",
+     "source": "https://github.com/projectchrono/chrono (third-party component licences: Chrono sources and the pychrono package, conda-forge)",
+     "use": "contact in mechanisms (`tools/chrono_env`, optional chrono module)", "texts": ["project-chrono/*"], "local": []},
+    {"name": "OpenCASCADE (OCCT) – core of cadquery-ocp", "slug": "occt", "version": "per cadquery-ocp 8.0.1.1.0",
+     "licence": "LGPL-2.1 with a linking exception (OCCT)",
+     "source": "https://dev.opencascade.org (text: https://github.com/Open-Cascade-SAS/OCCT, identical in V7_8_1 and V8_0_0)",
+     "use": "STEP, geometry, faces and the 3D window (dynamically linked libraries in OCP; replaceable)", "texts": ["occt/*"], "local": []},
+    {"name": "uv", "slug": "uv", "version": "–", "licence": "MIT or Apache-2.0", "source": "https://github.com/astral-sh/uv",
+     "use": "installer (`tools/uv`, bundled in setup.exe)", "texts": ["uv/*"], "local": ["tools/uv/LICENSE*"]},
+    {"name": "python-build-standalone (Python 3.11)", "slug": "python-build-standalone", "version": "3.11",
+     "licence": "Python: PSF-2.0 (and others per package); python-build-standalone build scripts: MPL-2.0",
+     "source": "https://github.com/astral-sh/python-build-standalone",
+     "use": "interpreter `tools/python` (installer)", "texts": ["python-build-standalone/*"], "local": ["tools/python/LICENSE*"]},
+    {"name": "micromamba", "slug": "micromamba", "version": "–", "licence": "BSD-3-Clause", "source": "https://github.com/mamba-org/mamba",
+     "use": "installer: hypre, Chrono and Linux system libraries (installer tool)", "texts": ["micromamba/*"], "local": []},
+    {"name": "Inno Setup", "slug": "inno-setup", "version": "6.7.1", "licence": "Inno Setup License (LICENSE.TXT); the authors ask commercial users to buy a licence",
+     "source": "https://jrsoftware.org/isinfo.php", "use": "building setup.exe (`tools/innosetup`); setup.exe carries the runtime part",
+     "texts": ["inno-setup/*"], "local": ["tools/innosetup/license.txt"]},
+]
+
+# Python packages whose wheel has no licence file in the dist-info: additional texts from installer/license_texts/ (key = normalised name).
+# They are used only when the dist-info has no licence file at all.
+_OCP_TEXTS = ["cadquery-ocp/LICENSE", "occt/LICENSE_LGPL_21.txt", "occt/OCCT_LGPL_EXCEPTION.txt"]
+PYTHON_EXTRA = {
+    "gmsh": ["gmsh/LICENSE.txt", "gmsh/CREDITS.txt", "_gnu/gpl-2.0.txt"],
+    "cadquery-ocp": _OCP_TEXTS,
+    "cadquery-ocp-proxy": _OCP_TEXTS,
+    "ngsolve-openblas": ["openblas/LICENSE"],
+    "rslab": ["rslab/LICENSE", "rslab/NOTICE"],
+    "ezdxf": ["ezdxf/LICENSE"],
+    "scikit-learn": ["scikit-learn/COPYING", "scikit-learn/array_api_*_LICENSE"],
+    "joblib": ["joblib/LICENSE.txt", "joblib/loky_LICENSE.txt"],
+    "threadpoolctl": ["threadpoolctl/LICENSE"],
+    "narwhals": ["narwhals/LICENSE.md"],
+    "cloudpickle": ["cloudpickle/LICENSE"],
+}
+
+# Licence texts of code that a wheel carries INSIDE (vendored) without a licence file of its own in the dist-info: they are added to the texts
+# of the package also when its dist-info has licence files (scikit-learn: sklearn/externals/array_api_compat and array_api_extra, MIT;
+# joblib: joblib/externals/loky, BSD-3-Clause). The Microsoft Visual C++ runtime of the scikit-learn Windows wheel (sklearn/.libs/*.dll) is
+# covered by the notice at the end of scikit-learn's own COPYING.
+VENDORED = {"scikit-learn": ["scikit-learn/array_api_*_LICENSE"], "joblib": ["joblib/loky_LICENSE.txt"]}
+
+# Qt for Python: the wheels carry only LicenseRef-Qt-Commercial.txt although FEA Studio uses Qt, PySide6 and shiboken6 under the LGPL-3.0 (the
+# open-source licence of Qt for Python: "LGPL-3.0-only OR GPL-2.0-only OR GPL-3.0-only"). The LGPL-3.0 is a set of additional permissions on top
+# of the GPL-3.0, so both texts go to every such package.
+_QT_TEXTS = ["_gnu/lgpl-3.0.txt", "_gnu/gpl-3.0.txt"]
+ALSO_ADDED = {**VENDORED, "pyside6": _QT_TEXTS, "pyside6-essentials": _QT_TEXTS, "pyside6-addons": _QT_TEXTS, "shiboken6": _QT_TEXTS}
+USED_UNDER = {name: "LGPL-3.0 (used under it; the wheel metadata offer LGPL-3.0-only OR GPL-2.0-only OR GPL-3.0-only, or a commercial licence)"
+              for name in ("pyside6", "pyside6-essentials", "pyside6-addons", "shiboken6")}
+
+# Packages of the locks that are NOT shipped in any package (only installed from PyPI on request): missing in the venv = a note,
+# not a warning (their licence texts come with them from PyPI).
+NOT_SHIPPED = {
+    "pyside6-addons": "docs module only (developers – PDF manuals); not in any package, installed from PyPI on request",
+    "pypdfium2": "docs module only (developers – PDF manuals); not in any package, installed from PyPI on request",
+    "pytest-timeout": "verify module only (developers – time limits of the tests); not in any package, installed from PyPI on request",
+}
+# A package of the lock that the build machine's venv does not have, but whose texts are in PYTHON_EXTRA (rslab: the development venv gets it from
+# tools/solver_lab, it is installed from PyPI on the user's machine): the texts of installer/license_texts are used instead of a warning – a package built
+# on such a machine must not lose the licence of a component that the installation brings (1.4.2: rslab, the direct solver). The licence column of the README.
+EXTRA_LICENCE = {"rslab": "MIT", "ezdxf": "MIT", "scikit-learn": "BSD-3-Clause", "joblib": "BSD-3-Clause", "threadpoolctl": "BSD-3-Clause",
+                 "narwhals": "MIT", "cloudpickle": "BSD-3-Clause"}
+
+# Source archives of the GPL binaries that the packages carry (GPL-2.0 §3(a): the complete source accompanies the binary).
+# make_package.add_sources puts them into licenses/sources/: "all" = every package (CalculiX: ccx_spooles.exe in the Windows
+# packages, ccx_spooles in the Linux packages), "offline" = only the offline setup (it carries the Gmsh wheel). The other sources of the two CalculiX programs are
+# the pins of their build scripts: the Windows packages carry those of installer/windows/build_ccx.sh (SPOOLES, ARPACK-ng, LAPACK, the Rust part, the GCC /
+# mingw-w64 run-time sources), the Linux packages those of installer/linux/build_ccx.sh and the GCC source of installer/linux/ccx_gccsrc.lock (linux_sources).
+# Digests verified 11. 11. 2026 (the CalculiX digest = the one pinned in installer/linux/build_ccx.sh).
+SOURCE_ARCHIVES = {
+    "ccx_2.23.src.tar.bz2": {"url": "https://www.dhondt.de/ccx_2.23.src.tar.bz2", "packages": "all",
+                             "sha256": "9c88385c10fb04f5dc6c4e98027a51bebdd8aee3920e05190d6c1dd08357d6e7"},
+    "gmsh-4.15.2-source.tgz": {"url": "https://gmsh.info/src/gmsh-4.15.2-source.tgz", "packages": "offline",
+                               "sha256": "be3f66f225d27ba9fa014f07e83169285da8a051b0e8ab7103d88066b39bdd3e"},
+}
+BUILD_CCX = ("installer", "linux", "build_ccx.sh")
+_GET_MIRRORS = re.compile(r'^\s*get_mirrors\s+(\S+)\s+([0-9a-f]{64})\s*\\?\s*\n((?:\s*"[^"]+"\s*\\?\s*\n)+)', re.MULTILINE)
+
+
+def build_ccx_sources(root: Path = ROOT) -> list[tuple[str, str, list[str]]]:
+    """Source archives that installer/linux/build_ccx.sh downloads (file, SHA-256, URLs) – the same list as the script pins."""
+    p = root.joinpath(*BUILD_CCX)
+    if not p.is_file():
+        return []
+    text = p.read_text(encoding="utf-8")
+    ver = re.search(r"^CCX_VER=(\S+)", text, re.MULTILINE)
+    out = []
+    for m in _GET_MIRRORS.finditer(text):
+        if m.group(1).startswith("micromamba"):            # the tool that installs the compilers, not a source
+            continue
+        if "pastix" in m.group(1):                         # only ccx_pastix needs it, and that binary is not distributed (licence question L4)
+            continue
+        urls = re.findall(r'"([^"]+)"', m.group(3))
+        if ver:
+            urls = [u.replace("${CCX_VER}", ver.group(1)) for u in urls]
+        out.append((m.group(1), m.group(2), urls))
+    return out + faer_pins(root, "linux")
+
+
+FAER_CARGO_LOCK = ("installer", "faer_ccx", "Cargo.lock")
+
+
+def faer_pins(root: Path = ROOT, platform: str = "windows") -> list[tuple[str, str, list[str]]]:
+    """The Rust inputs of the faer solver inside ccx_spooles (installer/faer_ccx, F17 stage C), pinned like the other sources: the source of the Rust standard library that
+    is linked in (`rustsrc` row of installer/<platform>/ccx_rust.lock) and every crate of installer/faer_ccx/Cargo.lock with the SHA-256 digest of its .crate file on
+    crates.io (file, SHA-256, URLs). The crates are named `crates/<name>-<version>.crate` (a folder of the archive and of licenses/sources/). A tree without these
+    files (a test project) has none."""
+    import tomllib
+    out: list[tuple[str, str, list[str]]] = []
+    rust_lock = root / "installer" / platform / "ccx_rust.lock"
+    if rust_lock.is_file():
+        for line in rust_lock.read_text(encoding="utf-8").splitlines():
+            parts = line.split()
+            if len(parts) == 3 and parts[0] == "rustsrc":
+                out.append((parts[2].rsplit("/", 1)[1], parts[1], [parts[2]]))
+    cargo_lock = root.joinpath(*FAER_CARGO_LOCK)
+    if cargo_lock.is_file():
+        for pkg in sorted(tomllib.loads(cargo_lock.read_text(encoding="utf-8")).get("package", []), key=lambda q: (q["name"], q["version"])):
+            if str(pkg.get("source", "")).startswith("registry+") and pkg.get("checksum"):
+                n, v = pkg["name"], pkg["version"]
+                out.append((f"crates/{n}-{v}.crate", pkg["checksum"], [f"https://static.crates.io/crates/{n}/{n}-{v}.crate"]))
+    return out
+
+
+def is_rust_source(name: str) -> bool:
+    """A source of the Rust part of the faer solver (the standard library source or a crate): licenses/sources/ carries them in the Windows and Linux packages."""
+    return name.startswith(("crates/", "rust-src-"))
+
+
+LINUX_GCC_LOCK = ("installer", "linux", "ccx_gccsrc.lock")
+LINUX_TOOLCHAIN_LOCK = ("installer", "linux", "ccx_toolchain.lock")
+
+
+def linux_gcc_source(root: Path = ROOT) -> dict | None:
+    """The GCC source of the pinned conda toolchain (installer/linux/ccx_gccsrc.lock): {"name": archive, "sha256", "urls", "version", "recipe_package", "commit"}.
+    A tree without the file (a test project) has none; a malformed file is a ValueError (a package must not silently go without the source)."""
+    p = root.joinpath(*LINUX_GCC_LOCK)
+    if not p.is_file():
+        return None
+    meta, rows = {}, []
+    for line in p.read_text(encoding="utf-8").splitlines():
+        if m := re.match(r"# (gcc_version|recipe_package|recipe_feedstock_commit): (\S+)$", line):
+            meta[m[1]] = m[2]
+        elif line.strip() and not line.startswith("#"):
+            rows.append(line.split())
+    if len(meta) != 3 or len(rows) != 1 or len(rows[0]) < 3 or rows[0][0] != "gccsrc" or not re.fullmatch(r"[0-9a-f]{64}", rows[0][1]) \
+            or not all(u.startswith("https://") for u in rows[0][2:]):
+        raise ValueError(f"{p.name}: expected the three '# key: value' lines and one line 'gccsrc <sha256> <url> [<url> ...]'")
+    return {"name": rows[0][2].rsplit("/", 1)[1], "sha256": rows[0][1], "urls": rows[0][2:], "version": meta["gcc_version"],
+            "recipe_package": meta["recipe_package"], "commit": meta["recipe_feedstock_commit"]}
+
+
+def linux_gcc_recipe_package(root: Path = ROOT) -> tuple[str, str, str]:
+    """(file name, SHA-256, URL) of the pinned conda package of ccx_toolchain.lock whose info/recipe/ is the recipe of the shipped GCC libraries."""
+    gcc = linux_gcc_source(root)
+    if gcc is None:
+        raise ValueError("installer/linux/ccx_gccsrc.lock is missing")
+    pattern = re.compile(rf"/{re.escape(gcc['recipe_package'])}-{re.escape(gcc['version'])}-[^/]+\.conda$")
+    lines = root.joinpath(*LINUX_TOOLCHAIN_LOCK).read_text(encoding="utf-8").splitlines()
+    hits = [q for q in (line.split() for line in lines if not line.startswith("#")) if len(q) == 3 and pattern.search(q[2])]
+    if len(hits) != 1:
+        raise ValueError(f"ccx_toolchain.lock: {len(hits)} packages {gcc['recipe_package']} {gcc['version']} (exactly one expected) – "
+                         "a new toolchain needs a new line in installer/linux/ccx_gccsrc.lock")
+    return hits[0][2].rsplit("/", 1)[1], hits[0][0], hits[0][2]
+
+
+def linux_gcc_recipe_folder(version: str) -> str:
+    """Folder of licenses/sources/ of the Linux packages with the conda-forge recipe of the shipped GCC libraries."""
+    return f"gcc-{version}-conda-forge-recipe"
+
+
+def linux_sources(root: Path = ROOT) -> list[tuple[str, str, list[str]]]:
+    """The source archives that the Linux packages carry in licenses/sources/ next to the shared CalculiX archive (SOURCE_ARCHIVES): everything that
+    installer/linux/build_ccx.sh pins (SPOOLES and its correction, LAPACK / BLAS, ARPACK-ng, rust-src, every crate) and the GCC source of
+    ccx_gccsrc.lock (libgfortran, libgcc, libgomp, libquadmath). The CalculiX download of the script is the same file as the shared one (same digest)."""
+    shared = {s["sha256"] for s in SOURCE_ARCHIVES.values()}
+    out = [x for x in build_ccx_sources(root) if x[1] not in shared]
+    gcc = linux_gcc_source(root)
+    if gcc:
+        out.append((gcc["name"], gcc["sha256"], gcc["urls"]))
+    return out
+
+
+def is_linux_gcc_source(name: str) -> bool:
+    return bool(re.fullmatch(r"gcc-\d+\.\d+\.\d+\.tar\.(gz|xz)", name))
+
+
+BUILD_CCX_WIN = ("installer", "windows", "build_ccx.sh")
+_GET_MIRRORS_WIN = re.compile(r'^get_mirrors\s+"\$DL/([^"]+)"\s+([0-9a-f]{64})((?:\s+"[^"]+")+)\s*$', re.MULTILINE)
+
+
+def build_ccx_win_sources(root: Path = ROOT) -> list[tuple[str, str, list[str]]]:
+    """Source archives that installer/windows/build_ccx.sh downloads (file, SHA-256, URLs) – the pinned sources of the Windows CalculiX. The
+    toolchain (MSYS2 packages) is pinned in ccx_toolchain.lock and is not a source of the binary."""
+    p = root.joinpath(*BUILD_CCX_WIN)
+    if not p.is_file():
+        return []
+    text = p.read_text(encoding="utf-8").replace("\\\n", " ")        # continued lines
+    ver = re.search(r"^CCX_VER=(\S+)", text, re.MULTILINE)
+    out = []
+    for m in _GET_MIRRORS_WIN.finditer(text):
+        urls = re.findall(r'"([^"]+)"', m.group(3))
+        if ver:
+            urls = [u.replace("${CCX_VER}", ver.group(1)) for u in urls]
+        out.append((m.group(1), m.group(2), urls))
+    return out + faer_pins(root, "windows")
+
+
+# The exact sources of the GCC runtime and the mingw-w64 libraries that are statically linked into `ccx_spooles.exe` (libgcc, libgfortran, libgomp, libquadmath,
+# the mingw-w64 CRT, winpthreads) are the MSYS2 source packages of the versions pinned in installer/windows/ccx_toolchain.lock: PKGBUILD, patches and the
+# upstream archive. build_ccx.sh pins them (get_mirrors lines, read by `build_ccx_win_sources`) and the packages carry them in licenses/sources/ (make_package.
+# add_sources): GPL-3.0 / LGPL-2.1 want the corresponding source with the binary, not an offer.
+# The three mingw-w64 packages (crt, headers, winpthreads) each carry a git clone of mingw-w64 of 57 MB – the same upstream commit (version string
+# 14.0.0.r598.ge3d18511f in all three): the package ships the clone once (the CRT one) and of the other two only the recipe (PKGBUILD, .SRCINFO).
+RUNTIME_SOURCE = re.compile(r"^mingw-w64-.+\.src\.tar\.zst$")
+RECIPE_ONLY = ("mingw-w64-headers-", "mingw-w64-winpthreads-")
+RUNTIME_WHAT = {
+    "mingw-w64-gcc-": "libgcc, libgfortran (with libbacktrace), libgomp and libquadmath of GCC 16.2.0 (upstream archive gcc-16.2.0.tar.xz + the MSYS2 patches)",
+    "mingw-w64-crt-": "mingw-w64 C runtime (the git repository of mingw-w64 at the commit of the version; the same repository is behind winpthreads and headers)",
+    "mingw-w64-winpthreads-": "winpthreads (recipe only; the sources are the repository of the CRT package)",
+    "mingw-w64-headers-": "mingw-w64 headers (recipe only; the sources are the repository of the CRT package)",
+}
+
+
+def is_runtime_source(name: str) -> bool:
+    return bool(RUNTIME_SOURCE.match(name))
+
+
+def is_recipe_only(name: str) -> bool:
+    return name.startswith(RECIPE_ONLY)
+
+
+def recipe_folder(name: str) -> str:
+    """Folder of licenses/sources/ with the recipe of a recipe-only source package."""
+    return name[:-len(".src.tar.zst")]
+
+
+def runtime_what(name: str) -> str:
+    return next((v for k, v in RUNTIME_WHAT.items() if name.startswith(k)), "")
+
+
+LINUX_WHAT = {                                       # the files of installer/linux/build_ccx.sh (its names) in the table of SOURCES.md
+    "spooles.tgz": "SPOOLES 2.2 (public domain), equation solver, statically linked",
+    "spooles.corr.tar.bz2": "the correction of SPOOLES from dhondt.de",
+    "lapack.tar.gz": "reference LAPACK / BLAS 3.12.0 (BSD-3), statically linked",
+    "arpack.tar.gz": "ARPACK-ng 3.9.1 (BSD-3), statically linked",
+}
+
+
+def write_sources(out: Path, root: Path, today: str) -> None:
+    """licenses/SOURCES.md: where to get the complete corresponding source of every shipped GPL / LGPL binary (archives in
+    `sources/`, URLs with SHA-256; no written offer – the packages carry the sources).
+    """
+    arch = SOURCE_ARCHIVES
+    ccx, gmsh = "ccx_2.23.src.tar.bz2", "gmsh-4.15.2-source.tgz"
+    lines = [
+        "# Sources of the GPL / LGPL components in this package", "",
+        f"Generated by `installer/collect_licenses.py` ({today}). This is not a legal opinion.", "",
+        "FEA Studio itself is GPL-3.0-or-later; its complete source code is this package (Python sources, nothing compiled).", "",
+        "## Archives included in `sources/`", "",
+        "| Archive | Component | In which packages | Original URL | SHA-256 |", "|---|---|---|---|---|",
+        f"| `sources/{ccx}` | CalculiX 2.23 (GPL-2.0) – source of `ccx_spooles.exe` (Windows) and `ccx_spooles` (Linux) | "
+        f"all packages | {arch[ccx]['url']} | `{arch[ccx]['sha256']}` |",
+        f"| `sources/{gmsh}` | Gmsh 4.15.2 (GPL-2.0-or-later) – source of the `gmsh` wheel | offline setup only (the other packages "
+        f"do not carry Gmsh; the installer downloads the wheel from PyPI) | {arch[gmsh]['url']} | `{arch[gmsh]['sha256']}` |",
+        "",
+        "## CalculiX binaries", "",
+        "- **Windows `tools/calculix/ccx_2.23_windows/ccx_spooles.exe`** (unpacked by the installer from `tools/calculix/ccx_2.23_windows_x86_64.zip` of "
+        "the package, which also holds `manifest.json` with the digests of everything the binary was made of): built by `installer/windows/build_ccx.ps1` "
+        "(in this package – the complete build script `build_ccx.sh`, the toolchain lock and the four patches of `installer/windows/patches/`: "
+        "`ccx_2.23_ucrt_build.patch` (a build fix without solver code), `ccx_2.23_spooles_serial_solve.patch` (serial triangular solve and a checked "
+        "multi-threaded factorization – a change of the solver logic), `ccx_2.23_faer.patch` (the faer solver in front of SPOOLES) and "
+        "`spooles_2.2_ordered_assembly.patch` (a change of SPOOLES: reproducible assembly); the changes of CalculiX are GPL-2.0 like CalculiX) from "
+        "these pinned archives; the archives of the Windows packages are in `sources/` (CalculiX in every package):", "",
+        "| File | SHA-256 | URL |", "|---|---|---|",
+    ]
+    win = build_ccx_win_sources(root)
+    for name, digest, urls in win:
+        if not is_runtime_source(name) and not is_rust_source(name):
+            lines.append(f"| `sources/{name}` | `{digest}` | {' or '.join(urls)} |")
+    lines += [
+        "",
+        "  The compiler and the libraries that are statically linked into the program come from MSYS2 (UCRT64, GCC 16.2.0); the exact binary packages (URL, SHA-256) "
+        "are pinned in `installer/windows/ccx_toolchain.lock`. Statically linked into `ccx_spooles.exe` are libgcc, libgfortran (with libbacktrace) and libgomp "
+        "(GPL-3.0 with the GCC Runtime Library Exception), **libquadmath (LGPL-2.1 or later)**, the mingw-w64 C runtime and winpthreads (ZPL-2.1 / MIT). Their "
+        "complete corresponding sources – the MSYS2 source packages (PKGBUILD, patches, upstream archive) of the pinned versions – travel with the Windows packages "
+        "in `sources/` (a zstd-compressed tar; `tar -xf` of Windows 10+ reads it):", "",
+        "| File | What | SHA-256 | URL |", "|---|---|---|---|",
+    ]
+    for name, digest, urls in win:
+        if is_runtime_source(name):
+            where = (f"`sources/{recipe_folder(name)}/` (PKGBUILD, .SRCINFO; the archive itself is not included)" if is_recipe_only(name) else f"`sources/{name}`")
+            lines.append(f"| {where} | {runtime_what(name)} | `{digest}` | {' or '.join(urls)} |")
+    lines += [
+        "",
+        "  The three mingw-w64 source packages (crt, headers, winpthreads) each contain a git clone of mingw-w64 of 57 MB, and all three are built from the same "
+        "commit (`e3d18511f9759d455cae20c34703eea4a0723cf3`, the version string `14.0.0.r598.ge3d18511f`). The CRT package carries the repository in full; of headers and winpthreads the "
+        "package carries the build recipe (PKGBUILD, .SRCINFO, extracted unchanged from the archive with the SHA-256 above) instead of two more copies of it.",
+        "",
+    ]
+    rust = faer_pins(root, "windows")
+    if rust:
+        lines += [
+            "### The faer solver inside `ccx_spooles.exe` (and `ccx_spooles`): Rust sources", "",
+            "The direct solver of symmetric matrices (unsymmetric ones with LU on request) is **faer 0.24.4** (MIT) behind a C interface (`installer/faer_ccx/`: the crate `fea_faer`, MIT; the glue "
+            "`faer.c` and the patch `installer/*/patches/ccx_2.23_faer.patch`, GPL-2.0 like CalculiX), built into a static library by `build_ccx.sh` with the pinned Rust "
+            "toolchain of `installer/*/ccx_rust.lock` (Rust 1.100.0 from static.rust-lang.org, SHA-256 per tarball) from the crates of `installer/faer_ccx/Cargo.lock` "
+            "(`cargo build --locked --offline` against a directory made of the crates below; every crate is checked against the digest of the lock file). MIT is not a "
+            "copyleft licence and asks for no source, but the program is distributed as one GPL-2.0 work, so the Windows and the Linux packages carry the exact inputs: the source of the "
+            "Rust standard library that is linked in (`rust-src`, MIT or Apache-2.0; `compiler_builtins` also contains code under Apache-2.0 with the LLVM exception) and "
+            "every crate (all MIT, or dual licensed with MIT, BSD-2-Clause or Zlib; the table with the licence of every crate is `external/faer/CRATES.md`). To rebuild with a "
+            "modified crate on Windows copy the files into `tools/winccx_build/archive/` (the crates in its folder `crates/`) and run `build_ccx.ps1`; a crate with another digest "
+            "is refused (for Linux see below).", "",
+            "| File | SHA-256 | URL |", "|---|---|---|"]
+        for name, digest, urls in rust:
+            lines.append(f"| `sources/{name}` | `{digest}` | {' or '.join(urls)} |")
+        lines += [""]
+    lines += [
+        "### libquadmath is inside `ccx_spooles.exe` (LGPL-2.1 or later)", "",
+        "19 objects of libquadmath 16.2.0 are statically linked into `ccx_spooles.exe`: libgfortran needs `quadmath_snprintf` for the formatted output of REAL(16), "
+        "which CalculiX never uses, but the linker cannot know that (the link map names them: `build_ccx.sh` reads it at every build and stops when a library appears that "
+        "is not on its list; `manifest.json` of the build lists the static libraries with their object counts). Notices: `external/libgomp-libquadmath/` "
+        "(`libquadmath_COPYING.LIB` = the licence text, `NOTICE-libquadmath.txt` = the copyright notices of the 19 source files). The program is distributed as a "
+        "whole under the GPL-2.0 (CalculiX); LGPL-2.1 section 6 lets you modify the library and link the program again, and this package gives you everything "
+        "that needs: the source of the library (above), the source of CalculiX, SPOOLES, ARPACK-ng and LAPACK (above), and the build scripts.", "",
+        "### Relinking with a modified libquadmath", "",
+        "1. Unpack `sources/mingw-w64-gcc-16.2.0-7.src.tar.zst` and, inside it, `gcc-16.2.0.tar.xz` into a folder whose path has no spaces (for example `C:/src`); "
+        "change `gcc-16.2.0/libquadmath/`.",
+        "2. Copy the files of `licenses/sources/` into the folder `tools/winccx_build/archive/` of the program (create it) and run from the program folder: "
+        "`powershell -ExecutionPolicy Bypass -File installer/windows/build_ccx.ps1 -LibQuadmathSource C:/src/gcc-16.2.0 -SkipRuntimeSources`. "
+        "The script unpacks the pinned MSYS2 toolchain (it downloads the packages of `ccx_toolchain.lock` with their SHA-256 unless they are in the archive folder), "
+        "builds CalculiX from the sources above, builds YOUR libquadmath with the same toolchain and links the program with it instead of the library of the toolchain "
+        "(15-25 minutes). `-LibQuadmath <folder>` links a `libquadmath.a` that you built some other way.",
+        "3. The result is `installer/windows/prebuilt/ccx_2.23_windows_x86_64.zip`; `ccx_spooles.exe` in it replaces "
+        "`tools/calculix/ccx_2.23_windows/ccx_spooles.exe`. Its `manifest.json` records that the library is not the one of the release.",
+        "",
+        "### The Linux program `ccx_spooles`", "",
+        "- **Linux `tools/calculix/ccx_2.23_linux/ccx_spooles`** (+ `lib/libgomp.so.1`, `lib/libquadmath.so.0`; unpacked by the installer from "
+        "`tools/calculix/ccx_2.23_linux_x86_64.tar.gz` of the package): built by `installer/linux/build_ccx.sh` (in this package – the complete build "
+        "script) with the patches of `installer/linux/patches/` (`ccx_2.23_spooles_serial_solve.patch`, `ccx_2.23_faer.patch`, "
+        "`spooles_2.2_ordered_assembly.patch`; `ccx_2.23_pastix_upstream.patch` is only for a local `ccx_pastix`, which is not distributed) from the "
+        "pinned archives below. **The Linux packages (`.tar.gz`, `.run`) carry all of them in `sources/`** (GPL-2.0 section 3(a), GPL-3.0 section 6: "
+        "the source travels with the binary). The Rust part (faer and its crates, the Rust standard library) is built with the Rust toolchain pinned in "
+        "`installer/linux/ccx_rust.lock` (SHA-256 of every tarball, among them the source of the standard library) from the crates of "
+        "`installer/faer_ccx/Cargo.lock`; `rust-src` and the crates (the table of the faer solver above) are in `sources/` of the Linux packages too.", "",
+        "| File | What | SHA-256 | URL |", "|---|---|---|---|",
+        f"| `sources/{ccx}` | CalculiX 2.23 (GPL-2.0); the build script calls it `ccx.src.tar.bz2` | `{arch[ccx]['sha256']}` | {arch[ccx]['url']} |",
+    ]
+    gcc = linux_gcc_source(root)
+    for name, digest, urls in linux_sources(root):
+        if not is_rust_source(name) and not is_linux_gcc_source(name):
+            lines.append(f"| `sources/{name}` | {LINUX_WHAT.get(name, '')} | `{digest}` | {' or '.join(urls)} |")
+    if gcc:
+        pkg, pkg_digest, pkg_url = linux_gcc_recipe_package(root)
+        folder = linux_gcc_recipe_folder(gcc["version"])
+        lines += [
+            f"| `sources/{gcc['name']}` | GCC {gcc['version']}, the upstream archive that the pinned conda-forge packages are built from: libgfortran (with "
+            f"libbacktrace) and libgcc (statically linked into `ccx_spooles`), libgomp and libquadmath (`lib/libgomp.so.1`, `lib/libquadmath.so.0`) | "
+            f"`{gcc['sha256']}` | {' or '.join(gcc['urls'])} |",
+            "",
+            f"- `sources/{folder}/` – the conda-forge recipe of these libraries with its patches and build scripts, extracted unchanged from `info/recipe/` of "
+            f"the pinned package `{pkg}` ({pkg_url}, SHA-256 `{pkg_digest}`, a row of `installer/linux/ccx_toolchain.lock`). The pinned packages that supply "
+            f"these libraries come from this recipe (conda-forge/ctng-compilers-feedstock, commit `{gcc['commit']}`). `parent/meta.yaml` names the GCC archive above with its "
+            "SHA-256, `parent/patches/` holds the four patches of the Linux build and `parent/build.sh` the build. The second source that the recipe lists "
+            "(zlib) is only for the compiler itself; nothing of it is in these libraries.",
+        ]
+    lines += [
+        "",
+        "  The compilers (and the binaries of the GCC libraries above) come from conda-forge (`gcc_linux-64`, `gfortran_linux-64`); the exact packages (URL, "
+        "SHA-256) are pinned in `installer/linux/ccx_toolchain.lock`. The C library (glibc) is not shipped: the program uses that of the system (version "
+        "2.35 or later); its start-up code and `libc_nonshared.a`, which every program built against glibc contains, carry the linking exception of glibc.",
+        "",
+        "### Rebuilding the Linux program, and a modified libgomp / libquadmath", "",
+        "`lib/libgomp.so.1` and `lib/libquadmath.so.0` are shared libraries (the program finds them through its RUNPATH `$ORIGIN/lib`): to use a modified "
+        "one, build it from the source above and replace the file in `tools/calculix/ccx_2.23_linux/lib/` (LGPL-2.1 section 6 for libquadmath). To rebuild "
+        "the whole program (for example with a modified source or statically linked library), copy the files of `licenses/sources/` into an empty work "
+        f"folder – `{ccx}` under the name `ccx.src.tar.bz2`, the crates into its folder `crates/` – and run "
+        "`bash installer/linux/build_ccx.sh OUTPUT WORKFOLDER`: the script takes a file that is already there when its SHA-256 matches (a changed source "
+        "needs its new digest in the script); it downloads the compilers (conda-forge, Rust, micromamba) as pinned.",
+        "",
+    ]
+    lines += [
+        "## LGPL libraries carried as Python wheels (offline setup only)", "",
+        "The offline setup (`FEAStudio-<version>-offline-setup.exe`) carries unmodified wheels from PyPI (other packages download them "
+        "during the installation). The libraries are dynamically linked and replaceable. Sources:", "",
+        "- Qt 6.11.2 / PySide6 / shiboken6 6.11.2 (LGPL-3.0): https://download.qt.io/official_releases/qt/6.11/6.11.2/ and "
+        "https://download.qt.io/official_releases/QtForPython/pyside6/ (pyside-setup-everywhere-src-6.11.2)",
+        "- OpenCASCADE (OCCT, LGPL-2.1 with exception) in cadquery-ocp 8.0.1.1.0: https://github.com/Open-Cascade-SAS/OCCT and "
+        "https://github.com/CadQuery/OCP",
+        "- Gmsh 4.15.2 (GPL-2.0-or-later): `sources/" + gmsh + "` (see above)", "",
+    ]
+    (out / "SOURCES.md").write_text("\n".join(lines) + "\n", encoding="utf-8")
+
+
+NOT_FOR_DISTRIBUTION = "NOT FOR DISTRIBUTION"
+
+
+def mark_not_for_distribution(licenses: Path, reasons: list[str]) -> None:
+    """Puts a NOT FOR DISTRIBUTION notice with the reasons at the top of licenses/SOURCES.md: a development build whose licenses/sources/ lacks sources of
+    binaries that it carries (make_package.distribution_blockers). The text below the notice describes a release and does not hold for such a build."""
+    p = licenses / "SOURCES.md"
+    title, _, rest = p.read_text(encoding="utf-8").partition("\n")
+    notice = [f"## {NOT_FOR_DISTRIBUTION}", "",
+              f"**{NOT_FOR_DISTRIBUTION}: this is a development build. It carries GPL / LGPL binaries without their complete sources, so it must not be "
+              "published or passed on.** What the text below says about the archives in `sources/` holds for a release only. Why:", ""]
+    p.write_text("\n".join([title, "", *notice, *(f"- {r}" for r in reasons)]) + "\n" + rest, encoding="utf-8")
+
+
+# Data shipped with the program (README.md and EXTERNAL.md, section Data).
+DATA = [
+    {"name": "PragTic – fatigue properties of materials", "path": "fea_core/fatigue/data/pragtic_vmat.json",
+     "source": "https://pragtic.com (J. Papuga)",
+     "licence": "NOT part of the package (until the author agrees); for own use download it with "
+                "python -m fea_core.fatigue.pragtic_fetch"},
+]
+
+
+def norm(name: str) -> str:
+    return re.sub(r"[-_.]+", "-", name).lower()
+
+
+def _cell(text: str) -> str:
+    return text.replace("|", "/").replace("\n", " ")
+
+
+def read_locks(root: Path) -> dict[str, dict]:
+    """Packages from the locks: {normalised name: {"name": name from the lock, "pins": {platform: version}}}."""
+    pkgs: dict[str, dict] = {}
+    for plat in PLATFORMS:
+        lock = root / "installer" / "locks" / f"{plat}.txt"
+        if not lock.is_file():
+            raise FileNotFoundError(f"lock {lock} is missing")
+        for line in lock.read_text(encoding="utf-8").splitlines():
+            m = PIN.match(line.strip())
+            if m:
+                entry = pkgs.setdefault(norm(m.group(1)), {"name": m.group(1), "pins": {}})
+                entry["pins"][plat] = m.group(2)
+    return pkgs
+
+
+def site_packages(venv: Path) -> tuple[Path, str]:
+    """site-packages of the venv and its platform (Windows: Lib/site-packages, Linux: lib/python3.x/site-packages)."""
+    win = venv / "Lib" / "site-packages"
+    if win.is_dir():
+        return win, "windows-x86_64"
+    for p in sorted(venv.glob("lib/python3*/site-packages")):
+        if p.is_dir():
+            return p, "linux-x86_64"
+    raise FileNotFoundError(f"venv {venv} has no site-packages (neither Lib\\site-packages nor lib/python3.x/site-packages)")
+
+
+def installed(site: Path) -> dict[str, tuple[metadata.Distribution, Path]]:
+    """Installed distributions by normalised name: (distribution, *.dist-info folder).
+
+    Like `importlib.metadata.distributions(path=[site])`, but with a known dist-info folder (the licence files).
+    """
+    out: dict[str, tuple[metadata.Distribution, Path]] = {}
+    for info in sorted(site.glob("*.dist-info")):
+        dist = metadata.PathDistribution(info)
+        try:
+            name = dist.metadata.get("Name")
+        except Exception:                                   # damaged dist-info (without METADATA) – skip
+            name = None
+        if name:
+            out.setdefault(norm(name), (dist, info))
+    return out
+
+
+def license_files(info: Path, dist: metadata.Distribution) -> list[Path]:
+    """Licence files of a distribution: License-File from the metadata, the licenses/ folder and LICENSE*/COPYING*/NOTICE* in the dist-info."""
+    found: set[Path] = set()
+    for rel in dist.metadata.get_all("License-File") or []:
+        p = info / rel
+        if p.is_file():
+            found.add(p)
+    for p in info.rglob("*"):
+        if p.is_file() and p.suffix != ".pyc":
+            if p.relative_to(info).parts[0] == "licenses" or LICENSE_NAME.match(p.name):
+                found.add(p)
+    return sorted(found)
+
+
+def licence_of(dist: metadata.Distribution) -> str:
+    md = dist.metadata
+    expr = md.get("License-Expression")
+    if expr:
+        return expr.strip()
+    classifiers = sorted({c.split("::")[-1].strip() for c in md.get_all("Classifier") or [] if c.startswith("License ::")})
+    if classifiers:
+        return "; ".join(classifiers)
+    text = (md.get("License") or "").strip()
+    first = text.splitlines()[0].strip() if text else ""
+    if not first:
+        return "not stated in the metadata"
+    return first[:80] + ("…" if len(first) > 80 else "")
+
+
+def _platforms(pins: dict) -> str:
+    if set(pins) == set(PLATFORMS):
+        return "Windows + Linux"
+    return "Windows" if "windows-x86_64" in pins else "Linux"
+
+
+def _unique_name(dst: Path, src: Path) -> str:
+    name = src.name
+    if (dst / name).exists():
+        name = f"{src.parent.name}_{src.name}"
+    return name
+
+
+def license_text_files(root: Path, patterns: list[str]) -> list[Path]:
+    """Files from installer/license_texts/ by patterns (relative to that folder), without duplicates, in the order of the patterns."""
+    base = root.joinpath(*TEXTS_DIR)
+    found: list[Path] = []
+    for pattern in patterns:
+        for src in sorted(base.glob(pattern)):
+            if src.is_file() and src not in found:
+                found.append(src)
+    return found
+
+
+def copy_unique(dst: Path, sources: list[Path]) -> list[str]:
+    """Copies the files to `dst` (the same content again is not copied; the same name with other content gets a prefix); returns the file names."""
+    names: list[str] = []
+    seen: set[bytes] = set()
+    for src in sources:
+        data = src.read_bytes()
+        if data in seen:
+            continue
+        seen.add(data)
+        dst.mkdir(parents=True, exist_ok=True)
+        target = _unique_name(dst, src)
+        (dst / target).write_bytes(data)
+        names.append(target)
+    return names
+
+
+def copy_external(out: Path, root: Path) -> dict[str, list[str]]:
+    """Licence texts of the components outside Python (license_texts/ + local files): {component name: [file names]}."""
+    copied: dict[str, list[str]] = {}
+    for e in EXTERNAL:
+        sources = license_text_files(root, e.get("texts", []))
+        for pattern in e["local"]:
+            sources += [src for src in sorted(root.glob(pattern)) if src.is_file()]
+        dst = out / "external" / ext_slug(e)
+        copied[e["name"]] = copy_unique(dst, sources)
+        tree = root / e["tree"] if e.get("tree") else None
+        if tree is not None and tree.is_dir():                    # copied with its folders (files with the same name in several of them)
+            for src in sorted(p for p in tree.rglob("*") if p.is_file()):
+                rel = src.relative_to(tree)
+                (dst / rel).parent.mkdir(parents=True, exist_ok=True)
+                shutil.copyfile(src, dst / rel)
+                copied[e["name"]].append(rel.as_posix())
+    return copied
+
+
+def slug(text: str) -> str:
+    return re.sub(r"[^a-z0-9]+", "-", text.lower()).strip("-")
+
+
+def ext_slug(e: dict) -> str:
+    """Folder name external/<slug>/ of the component from EXTERNAL."""
+    return e.get("slug") or slug(e["name"])
+
+
+def data_lines() -> list[str]:
+    lines = ["", "## Data", "", "| Data | File in the program | Source | Licence |", "|---|---|---|---|"]
+    for d in DATA:
+        lines.append(f"| {_cell(d['name'])} | `{d['path']}` | {_cell(d['source'])} | {_cell(d['licence'])} |")
+    return lines
+
+
+def write_external(out: Path, copied: dict[str, list[str]], today: str) -> None:
+    lines = [
+        "# Components outside the Python packages", "",
+        "Components that are not Python packages (CalculiX, Gmsh, MPI…). FEA Studio's own code is licensed under "
+        "GNU GPL v3 (file `../LICENSE`).",
+        "Full list with notes: `../THIRD_PARTY_LICENSES.md`. Generated by `installer/collect_licenses.py` (" + today + ").",
+        "", "| Component | Version | Licence | Source and licence text | How it is used | Text in the package |",
+        "|---|---|---|---|---|---|",
+    ]
+    for e in EXTERNAL:
+        names = copied.get(e["name"]) or []
+        where = f"`external/{ext_slug(e)}/` (files: {len(names)})" if names else "link (the text is not in this tree – attach by hand)"
+        lines.append(f"| {_cell(e['name'])} | {_cell(e['version'])} | {_cell(e['licence'])} | {_cell(e['source'])} | "
+                     f"{_cell(e['use'])} | {where} |")
+    lines += data_lines()
+    (out / "EXTERNAL.md").write_text("\n".join(lines) + "\n", encoding="utf-8")
+
+
+def write_readme(out: Path, rows: list[dict], warnings: list[str], today: str) -> None:
+    n_text = sum(1 for r in rows if r["texts"].startswith("`python/"))
+    lines = [
+        "# Third-party licences (folder `licenses/`)", "",
+        f"Generated by `installer/collect_licenses.py` ({today}) from `.venv` and the locks `installer/locks/` (windows-x86_64, "
+        "linux-x86_64). This is not a legal opinion.", "",
+        "FEA Studio's own code is licensed under **GNU GPL v3 or later** (file `../LICENSE`). The licences of the other components "
+        "are listed below and in `EXTERNAL.md`. List of components and notes on obligations: `../THIRD_PARTY_LICENSES.md`.", "",
+        "## Contents", "",
+        "- `python/<package>-<version>/` – licence files of the Python packages (from their dist-info; structure as in the package)",
+        "- `external/<component>/` – texts of components that are not Python packages (downloaded from the official sources, "
+        "`installer/license_texts/SOURCES.md`)",
+        "- `EXTERNAL.md` – components outside Python and data: version, licence, source, how they are used",
+        "- `SOURCES.md` – where the complete source of every shipped GPL / LGPL binary is (with SHA-256 digests)",
+        "- `sources/` – the source archives included in the package: what the CalculiX program of the package is built from (CalculiX, SPOOLES, "
+        "ARPACK-ng, LAPACK, the Rust standard library and the crates of faer) and the sources of the GCC run-time libraries that are linked into it or "
+        "shipped with it (Windows packages: the MSYS2 source packages of GCC and mingw-w64; Linux packages: the GCC archive with the conda-forge recipe "
+        "and patches); the offline setup also Gmsh", "",
+        "## Sources of the GPL components", "",
+        "- CalculiX 2.23 (GPL-2.0): `sources/ccx_2.23.src.tar.bz2` = https://www.dhondt.de/ccx_2.23.src.tar.bz2 – Linux build: "
+        "`installer/linux/build_ccx.sh`.",
+        "- Gmsh 4.15.2 (GPL-2.0-or-later): https://gmsh.info/src/ (in the offline setup also `sources/gmsh-4.15.2-source.tgz`)",
+        "- Qt / PySide6, OCCT, NGSolve (LGPL): the libraries are separate and replaceable (their licences in `python/`, sources in "
+        "SOURCES.md).", "",
+        f"## Python packages ({len(rows)} in the locks, {n_text} with licence texts)", "",
+        "| Package | Version | Platform | Licence | Texts / note |", "|---|---|---|---|---|",
+    ]
+    for r in rows:
+        cell = " – ".join(x for x in (r["texts"] if r["texts"] != "–" else "", r["note"]) if x)
+        lines.append(f"| {_cell(r['name'])} | {_cell(r['version'])} | {r['platforms']} | {_cell(r['licence'])} | {_cell(cell)} |")
+    lines += data_lines()
+    if warnings:
+        lines += ["", "## Warnings from the collection (add the texts before distribution)", ""] + [f"- {_cell(w)}" for w in warnings]
+    (out / "README.md").write_text("\n".join(lines) + "\n", encoding="utf-8")
+
+
+def collect(out: Path, venv: Path, root: Path = ROOT) -> list[str]:
+    """Collects the licences into `out`; returns the list of warnings (an installed package without a licence file, a missing lock package)."""
+    site, venv_plat = site_packages(venv)
+    pkgs = read_locks(root)
+    inst = installed(site)
+    out = Path(out)
+    for sub in ("python", "external"):
+        shutil.rmtree(out / sub, ignore_errors=True)
+    (out / "python").mkdir(parents=True, exist_ok=True)
+    rows: list[dict] = []
+    warnings: list[str] = []
+    for key in sorted(pkgs, key=lambda k: pkgs[k]["name"].lower()):
+        name, pins = pkgs[key]["name"], pkgs[key]["pins"]
+        hit = inst.get(key)
+        if hit is None:
+            if key in NOT_SHIPPED:
+                note = NOT_SHIPPED[key]
+                if venv_plat in pins and (more := license_text_files(root, ALSO_ADDED.get(key, []))):
+                    dst = out / "python" / f"{name}-{pins[venv_plat]}"
+                    names = copy_unique(dst, more)
+                    rows.append({"name": name, "version": pins[venv_plat], "platforms": _platforms(pins), "licence": USED_UNDER.get(key, "see the texts"),
+                                 "texts": f"`python/{dst.name}/` (files: {len(names)}, added from installer/license_texts)", "note": note})
+                    continue
+            elif venv_plat in pins and (extra := license_text_files(root, PYTHON_EXTRA.get(key, []))):
+                ver = pins[venv_plat]
+                dst = out / "python" / f"{name}-{ver}"
+                names = copy_unique(dst, extra)
+                rows.append({"name": name, "version": ver, "platforms": _platforms(pins), "licence": EXTRA_LICENCE.get(key, "see the texts"),
+                             "texts": f"`python/{dst.name}/` (files: {len(names)}, added from installer/license_texts)",
+                             "note": "not in the venv of the build machine – texts from installer/license_texts"})
+                continue
+            elif venv_plat in pins:
+                warnings.append(f"{name}=={pins[venv_plat]} is in the lock {venv_plat} but missing in the venv ({venv.name}) – "
+                                "licences not copied")
+                note = "missing in the venv"
+            else:
+                note = "other platform"
+            rows.append({"name": name, "version": pins.get(venv_plat) or next(iter(pins.values())),
+                         "platforms": _platforms(pins), "licence": NOT_INSTALLED, "texts": "–", "note": note})
+            continue
+        dist, info = hit
+        ver = dist.version
+        note = f"{ver} in the venv, {pins[venv_plat]} in the lock" if venv_plat in pins and pins[venv_plat] != ver else ""
+        lic = licence_of(dist)
+        files = license_files(info, dist)
+        extra = [] if files else license_text_files(root, PYTHON_EXTRA.get(key, []))
+        if extra:
+            dst = out / "python" / f"{name}-{ver}"
+            names = copy_unique(dst, extra)
+            texts = f"`python/{dst.name}/` (files: {len(names)}, added from installer/license_texts)"
+        elif files:
+            dst = out / "python" / f"{name}-{ver}"
+            for f in files:
+                try:
+                    rel = f.relative_to(info).as_posix()
+                except ValueError:                          # License-File outside the dist-info
+                    rel = f.name
+                target = dst / rel
+                target.parent.mkdir(parents=True, exist_ok=True)
+                shutil.copyfile(f, target)
+            more = license_text_files(root, ALSO_ADDED.get(key, []))
+            added = copy_unique(dst, more) if more else []
+            why = "vendored code" if key in VENDORED else "licence texts the wheel does not carry"
+            texts = f"`python/{dst.name}/` (files: {len(files) + len(added)}" + (f", {why}: installer/license_texts)" if added else ")")
+        else:
+            texts = "**licence file MISSING** – add it by hand from the author's website"
+            warnings.append(f"{name} {ver}: the dist-info has no licence file (licence from the metadata: {lic})")
+        lic = USED_UNDER.get(key, lic)
+        rows.append({"name": name, "version": ver, "platforms": _platforms(pins), "licence": lic, "texts": texts, "note": note})
+    copied = copy_external(out, root)
+    today = datetime.date.today().isoformat()
+    write_external(out, copied, today)
+    write_sources(out, root, today)
+    write_readme(out, rows, warnings, today)
+    return warnings
+
+
+def main(argv: list[str] | None = None) -> int:
+    for stream in (sys.stdout, sys.stderr):
+        if hasattr(stream, "reconfigure"):
+            stream.reconfigure(errors="replace")
+    ap = argparse.ArgumentParser(description="Collects third-party licences for the FEA Studio packages.")
+    ap.add_argument("--out", default=str(ROOT / "licenses"), help="output folder (default licenses/ in the project root)")
+    ap.add_argument("--venv", default=str(ROOT / ".venv"), help="development or installed venv (default .venv)")
+    a = ap.parse_args(argv)
+    try:
+        warnings = collect(Path(a.out), Path(a.venv))
+    except FileNotFoundError as e:
+        print(f"ERROR: {e}", file=sys.stderr)
+        return 1
+    for w in warnings:
+        print(f"WARNING: {w}", file=sys.stderr)
+    print(f"Licenses collected into {Path(a.out).resolve()} ({len(warnings)} warnings)")
+    return 0
+
+
+if __name__ == "__main__":
+    sys.exit(main())

@@ -1,0 +1,71 @@
+<h1>Náhradní model s chybovými pásy</h1>
+<p class="lead">Po <a href="vysledky.html#parametricka">parametrické studii</a> umí program odpovědět na otázku <b>„jaké je maximální napětí / posuv / hmotnost / první
+frekvence pro tyto hodnoty parametrů“</b> během milisekund, s <b>ověřeným chybovým pásem</b>, a <b>odmítne</b> odpovídat tam, kde neexistuje výpočet.
+Nenahrazuje výpočet metodou konečných prvků: interpoluje mezi výpočty, které se udělaly.</p>
+
+<h2>Jak ho získat</h2>
+<ol>
+<li><b>Nástroje → Parametrická studie…</b>, režim <b>Latinská hyperkrychle</b>: každému číselnému parametru zadejte <b>rozsah</b> (<tt>od; do</tt>; nejvýše 5 parametrů) a počet bodů
+(výchozí je 40; model o 2 parametrech potřebuje alespoň 19 <i>zkonvergovaných</i> bodů, o 3 parametrech 23, o 4 parametrech 27, o 5 parametrech 31 – 2 až 3krát více je lepší; ve studii je nejvýše 200 bodů). Body jsou rozloženy rovnoměrně po celém rozsahu
+(stejné <b>počáteční číslo (seed)</b> dá stejné body). Materiál nebo vzor tisku je <b>kategorie</b>: dostane vlastní model. Parametry mohou být zatížení, materiály, velikost sítě
+a – u modelu nakresleného v <a href="sketch.html">náčrtníku</a> – libovolný <b>parametr náčrtu</b>: geometrie se pro každý bod znovu sestaví, vysíťuje a spočítá se zachovaným nastavením.</li>
+<li>Karta <b>Náhradní model → Vytvořit náhradní model</b>. Asi 20 % bodů – <b>nejméně 9</b> – se <b>vynechá</b>: do proložení nevstupují, slouží k ověření a kalibraci chybového pásu. Devět je nejméně, co může
+zaručit 90% pás; při menším počtu pás uvede, co skutečně zaručuje (<i>n</i> / (<i>n</i> + 1), pro 6 bodů 86 %), a model se nikdy nenazve spolehlivým.</li>
+<li>Karta <b>Kvalita</b> ukazuje u každého výsledku, jak dobrý model je na vynechaných bodech; karta <b>Zkoumat</b> má posuvník pro každý parametr s předpovědí naživo, křivku s pásem nebo 2D mapu (prázdnou tam, kde model neodpovídá).</li>
+</ol>
+
+<h2>Co chybový pás znamená</h2>
+<p>Pás je <b>konformní predikční interval s rozdělením dat</b>: model (Gaussův proces, nebo – bez modulu <i>surrogate</i> – interpolace radiálními bázovými funkcemi) předpoví hodnotu
+a místní měřítko; vynechané body určí součinitel, kterým se pás musí rozšířit, aby obsahoval 90 % z nich. Pro nové body téhož návrhu pak pás platí v nejméně
+<b>90 % případů</b> – <b>v průměru přes spočtenou oblast</b>: není to výrok o jednom jejím rohu. U okrajů rozsahů parametrů může být pokrytí nižší (při prověrce této funkce naměřeno 0,83–0,89
+ve vnější vrstvě proti 0,95 celkem), uprostřed je vyšší; odpověď do 5 % od okraje parametru nese varování a <b>není označena jako spolehlivá</b>. Záruka nezávisí na tom, jak dobré jsou předpoklady regrese – špatný model dostane prostě široký pás.</p>
+<table class="grid">
+<tr><th>Sloupec (karta Kvalita)</th><th>Význam</th></tr>
+<tr><td>Proložení / vynechané</td><td>počet bodů, které model proložily / které byly vynechány (kalibrují pás)</td></tr>
+<tr><td>R² (vynechané), Medián chyby</td><td>přesnost předpovědi na vynechaných bodech (relativní chyba hodnoty)</td></tr>
+<tr><td>Součinitel pásu</td><td>kolika předpovězenými směrodatnými odchylkami je pás široký; asi 1,6 je Gaussův proces, který svou chybu zná, mnohem víc říká, že jeho σ bylo příliš optimistické</td></tr>
+<tr><td>Úroveň pásu</td><td>pokrytí, které kalibrace zaručuje: 90 % při nejméně 9 vynechaných bodech, jinak <i>n</i> / (<i>n</i> + 1) – tato úroveň, ne 90 %, je uvedena v tabulkách, v odpovědích MCP i v protokolu</td></tr>
+<tr><td>Pokrytí (CV)</td><td>podíl trénovacích bodů uvnitř pásu při křížové validaci (vynechání jednoho bodu až do 100 trénovacích bodů, jinak desetinásobná) – kontrola kalibrovaného pásu. Používá hyperparametry proložení všech bodů, takže je mírně optimistické</td></tr>
+<tr><td>Spolehlivý</td><td><b>NE</b>, když bylo vynecháno méně než 9 bodů, když je R² na vynechaných bodech pod 0,9 (netestuje se u výsledku, který je prakticky konstantní: jeho rozptyl je pod pásem a pás je v rozmezí ±1 % hodnoty), nebo když je pokrytí z křížové validace zřetelně pod úrovní (pod 80 % a pod úrovní minus 1,645 standardní chyby). Předpověď se přesto vydá, s varováním. Správný model tímto testem občas neprojde – skutečné pokrytí 9 až 20 vynechaných bodů je samo nejisté</td></tr>
+</table>
+
+<h2>Kde odpovídá, co odmítne a před čím varuje</h2>
+<p>Náhradní model odpovídá jen <b>tam, kde existují zkonvergované výpočty</b> – v rozsahu použitelných bodů, ne v rozsahu, který byl požadován:</p>
+<ul>
+<li><b>Mimo rozsah zkonvergovaných bodů</b> parametru: odmítne. Když část rozsahu selhala (tenký ligament, který se nevysíťuje), proložení to oznámí a pojmenuje oblast a model tam neodpovídá.</li>
+<li><b>Mimo konvexní obal</b> zkonvergovaných bodů (2 a více parametrů), <b>v díře</b> návrhu (uvnitř prázdné oblasti větší než měřítko mezer návrhu – 2 mediány rozestupu, u nepravidelného návrhu víc – a hlouběji než čtvrtina rozestupu od jejího okraje, nebo dál od nejbližšího vypočteného bodu, než toto měřítko dovoluje) a <b>vedle selhaného výpočtu</b> nebo výpočtu, který nemá hodnotu tohoto výsledku: odmítne. Bod na okraji díry (do čtvrtiny rozestupu od něj) se zodpoví s varováním a <b>není označen jako spolehlivý</b>: výpočty leží jen z jedné jeho strany. Díru menší než přirozené mezery náhodného návrhu od nich nelze odlišit a rys odezvy užší než rozestup bodů nevidí žádný náhradní model.
+Při 4–5 parametrech pokrývá obal latinské hyperkrychle jen asi polovinu rozsahu (rohy leží mimo); jsou-li rohy důležité, spočítejte je také.</li>
+<li>MCP: <tt>extrapolate=true</tt> předpoví i tak, s varováním EXTRAPOLACE a <b>bez záruky</b> (každý výsledek je označen jako nespolehlivý). Políčko hodnoty parametru přijme i hodnoty za posuvníkem, aby se odmítnutí ukázalo.</li>
+<li><b>Návrh, který nepokrývá všechny parametry</b> (režim <i>seznam</i> se dvěma číselnými parametry je přímka): odmítne už při proložení.</li>
+<li><b>Parametr s málo úrovněmi</b> (režim <i>mřížka</i> se 2 až 5 hodnotami parametru): model odpovídá jen PŘI těchto hodnotách – co odezva dělá mezi třemi úrovněmi, není známo, ať ostatní parametry dělají cokoli; dotaz mezi nimi se odmítne (proložení to oznámí). Od 6 různých hodnot se parametr interpoluje; nesourodá mřížka (mnoho hodnot jednoho parametru, málo druhého) se odmítne i mezi hrubými řadami.</li>
+<li><b>Návrh po jednom parametru</b> (hvězda: každý bod se od základního liší v jediném parametru) <b>se proloží, ale odpovídá jen NA svých přímkách</b> – součinnost parametrů nebyla nikdy spočtena, takže každý dotaz mimo přímky se odmítne a proložení varuje. Pro náhradní model celé oblasti použijte režim <i>Latinská hyperkrychle</i>.</li>
+<li><b>Příliš malá trénovací sada</b>: model se nevytvoří (4 body na parametr + 2 na proložení a 9 vynechaných). Méně než 10 proložených bodů na parametr dává varování.</li>
+<li><b>Studie se změnila</b> po sérii výpočtů (geometrie, zatížení, vazby, neprobírané materiály, nastavení sítě): model je <b>zastaralý</b> – odpovědi to říkají a nejsou spolehlivé, „Ověřit“ je vypnuté, proložení starou sérii odmítne. Nová parametrická studie nebo nová studie náhradní model zahodí. Probíraný součinitel zatížení skrývá jen jediný společný násobek zatížení, která škáluje; změna směru, změna jedné z více sil, přesunuté působiště, jiná teplota nebo zatížení jiného stavu model zastará.</li>
+<li>Neznámá kategorie (materiál, který ve studii nebyl), selhaný výpočet (bod se z proložení vynechá), parametr, který se nikdy nemění (z modelu se vynechá).</li>
+</ul>
+<p class="warn"><b>Chybové pásy pokrývají jen interpolaci mezi vypočtenými body a šum sítě.</b> NEPOKRÝVAJÍ rozptyl materiálu, výrobní tolerance, zatížení odlišná od studie
+ani předpoklady modelování. Pokrytí je průměr přes spočtenou oblast a pásy platí jen tam, kde výpočty existují, a pro studii, ke které byly vytvořeny. Stejný text je v odpovědích nástrojů MCP a v protokolu.</p>
+
+<h2>Ověřit bod, přidat další body</h2>
+<ul>
+<li><b>Ověřit tento bod výpočtem MKP</b> provede jeden úplný výpočet při hodnotách z posuvníků (bod musí ležet ve spočtené oblasti), porovná ho s pásem (uvnitř / mimo) a <b>přidá bod do trénovací sady</b> (model se znovu proloží;
+vynechané body zůstávají stejné a bod, který vybral sám model, se nikdy nestane kalibračním). Bod mimo spočtenou oblast se odmítne: rozšířil by rozsah za to, co kalibrace pokrývá – spusťte novou studii přes větší rozsah.</li>
+<li><b>Navrhnout další body</b> navrhne body uvnitř spočtené oblasti, kde model ví nejméně (předpovězené σ Gaussova procesu, nebo u radiální báze vzdálenost k nejbližšímu vypočtenému bodu);
+<b>Spočítat navržené body</b> je spočítá a model znovu proloží.</li>
+</ul>
+
+<h2>Uloženo, v protokolu, automatizace</h2>
+<ul>
+<li>Model se ukládá do souboru projektu <tt>.fea</tt> (<tt>surrogate.npz</tt>: návrhové body, rozdělení, vypočtené hyperparametry, otisk studie a série výpočtů – bez pickle). Soubor se čte jako každý cizí soubor: velikosti, typy a rozsahy se zkontrolují dřív, než se cokoli přečte,
+a pás, přesnost a verdikt se z uloženého rozdělení <b>znovu vypočtou</b> (soubor nemůže podvrhnout úzký pás). Poškozený soubor nikdy nezabrání otevření projektu: náhradní model se zahodí se zprávou. Model s Gaussovým procesem se obnoví přesně i bez scikit-learn (předpověď je čisté numpy).</li>
+<li><a href="protokol.html">Protokol Word</a> dostane kapitolu <b>Náhradní model</b>: parametry a rozsahy vypočtených bodů, tabulku ověření, vynechané body s pásem, zda se studie od té doby změnila, omezení.</li>
+<li><b>Volitelný modul</b> <i>surrogate</i> (scikit-learn, BSD-3): Gaussův proces s vlastním odhadem chyby (scikit-learn jen optimalizuje jeho hyperparametry; první proložení ho načte, program pak zabírá asi o 25 MB víc). Náhradní model funguje i bez něj (radiální báze ze scipy, stejná kalibrace pásu).
+Výsledky obou metod se mírně liší; soubor si pamatuje, která byla použita.</li>
+<li>MCP (skupina <i>results</i>): <tt>fea_param_study_run</tt> s <tt>mode="lhs"</tt> a <tt>bounds</tt> u každého parametru, <tt>fea_surrogate_fit</tt> (kpis, validation_fraction, seed, backend),
+<tt>fea_surrogate_predict</tt> (params → hodnota, dolní, horní, úroveň, varování), <tt>fea_surrogate_info</tt> (tabulka ověření, zastaralost, navržené další body).</li>
+</ul>
+
+<h2>Ověření</h2>
+<p>SU1: napětí desky s otvorem podle poloměru otvoru a šířky (40 výpočtů, 30 proložených + 10 vynechaných) proti 20 novým náhodným výpočtům v oblasti, kde model odpovídá (85 % rozsahu): medián chyby 0,024 %, 20 z 20 uvnitř pásu;
+samotné výpočty souhlasí s K<sub>t</sub> podle Heywooda / Petersona na 0,53 %. SU2: průhyb konzoly podle délky, tloušťky, výšky a modulu pružnosti (80 výpočtů; obal pokrývá 47 % čtyřparametrového rozsahu): medián chyby 0,29 %, 20 z 20 uvnitř pásu;
+výpočty souhlasí s Timošenkovou teorií nosníků na 1,6 %. SU3: kategorický materiál (96 výpočtů, 24 na materiál, jeden model na materiál): poměry posuvů materiálů se rovnají poměrům modulů na 0,10 % a 0,14 %, u(2,6) / u(0,8) ocelové desky je 3,27 proti 3,25, tři odmítnutí (mimo rozsah, neznámý materiál) a varování při extrapolaci. (Metoda radiální báze; každé číslo je jeden běh kontrol, které jsou v <tt>verification/surrogate_cases.py</tt>.)</p>

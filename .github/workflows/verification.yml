@@ -1,0 +1,123 @@
+# Public verification set (verification/catalogue.py, docs/verification/): runs every published case against its independent reference
+# (closed-form, handbook / standard, published solution, MYSTRAN) on Linux with the standard profile and uploads the generated page
+# (README.md, results.csv, index.html) as an artifact. Weekly the quick set runs (without the very long contact cases of
+# verification.tiers.VERY_SLOW); on a release tag and by hand the full set, except the impact case KK4 that takes hours (run it with
+# `python -m verification.run_public --only KK4`). A release copies the artifact into docs/verification/.
+# The set of the page is the one of the catalogue; the install, the CalculiX build and the caches are as in tests.yml.
+# NOTE: MYSTRAN is not part of FEA Studio (a separately downloaded program) and the runner has none: this page lists the MYSTRAN cases (V5, F9M, F3M, F11M) as
+# "not run" and marks V1-V4, V6, V7 "no MYSTRAN cross-check". A release must keep those rows from a local run with the program, like the Chrono rows below.
+# NOTE: the profile `standard` below has no Chrono module (optional, not on the runner on purpose), so MB4C, MB4R and KK5 (verification.tiers.
+# NEEDS_CHRONO) are "not run" on this page. A release must NOT copy this artifact over docs/verification/ unchanged: keep the rows of those
+# three cases from a local run with the module (`python -m verification.run_public --only MB4C MB4R KK5 --merge`).
+name: verification
+
+on:
+  schedule:
+    - cron: "17 3 * * 1"           # Mondays 03:17 UTC
+  push:
+    tags: ["v*"]
+  workflow_dispatch:
+    inputs:
+      quick:
+        description: "Leave out the very long cases (verification.tiers.VERY_SLOW)"
+        type: boolean
+        default: false
+
+permissions:
+  contents: read
+
+concurrency:
+  group: verification-${{ github.ref }}
+  cancel-in-progress: true
+
+env:
+  PYTHONIOENCODING: utf-8
+
+jobs:
+  public-verification:
+    name: ubuntu / standard
+    runs-on: ubuntu-24.04
+    timeout-minutes: 360
+    steps:
+      - uses: actions/checkout@93cb6efe18208431cddfb8368fd83d5badbf9bfd   # v5.0.1
+        with:
+          persist-credentials: false
+
+      - name: System libraries (Gmsh needs GLU/X11 client libraries)
+        run: |
+          # the runner's mirror DNS fails now and then → retry the whole step a few times
+          pkgs="libglu1-mesa libxcursor1 libxft2 libxinerama1 libxrender1 libegl1 libgl1 libxkbcommon0 libfontconfig1 libdbus-1-3 curl bzip2 perl"
+          for i in 1 2 3 4; do
+            sudo apt-get -o Acquire::Retries=5 update -q \
+              && sudo apt-get -o Acquire::Retries=5 install -y -q --no-install-recommends $pkgs && exit 0
+            echo "apt failed (attempt $i), retrying in 30 s"; sleep 30
+          done
+          exit 1
+
+      - name: uv cache folder (read by installer/fea_setup.py)
+        run: echo "FEA_UV_CACHE_DIR=$RUNNER_TEMP/uv-cache" >> "$GITHUB_ENV"
+
+      - name: Cache of uv packages
+        uses: actions/cache@27d5ce7f107fe9357f9df03efb73ab90386fccae   # v5.0.5
+        with:
+          path: ${{ runner.temp }}/uv-cache
+          key: uv-${{ runner.os }}-standard-${{ hashFiles('installer/locks/*.txt') }}
+          restore-keys: uv-${{ runner.os }}-standard-
+
+      # CalculiX for Linux: exactly as in tests.yml (the same cache key: the archive is shared with that workflow)
+      - name: Cache of the prebuilt CalculiX archive (Linux)
+        id: ccx-cache
+        uses: actions/cache@27d5ce7f107fe9357f9df03efb73ab90386fccae   # v5.0.5
+        with:
+          path: installer/linux/prebuilt/ccx_2.23_linux_x86_64.tar.gz
+          key: ccx-linux-archive-${{ hashFiles('installer/linux/build_ccx.sh', 'installer/linux/ccx_toolchain.lock', 'installer/linux/ccx_deps.lock', 'installer/linux/patches/*.patch') }}
+
+      - name: Build CalculiX (Linux, cache miss – a release tool, not part of the installer)
+        if: steps.ccx-cache.outputs.cache-hit != 'true'
+        env:
+          FEA_CCX_PASTIX: "0"      # the packages carry ccx_spooles only (licence question L4): the verification runs what ships
+        run: |
+          mkdir -p installer/linux/prebuilt
+          bash installer/linux/build_ccx.sh "$RUNNER_TEMP/ccx-out" "$RUNNER_TEMP/ccx-work" installer/linux/prebuilt/ccx_2.23_linux_x86_64.tar.gz
+          ls -l installer/linux/prebuilt
+
+      - name: Install (installer/fea_setup.py, profile standard + verify)
+        run: |
+          python3 installer/fea_setup.py install verify mcp --profile standard --quiet --lang en \
+            --no-shortcuts --no-mcp --no-fusion --no-check
+          echo "VPY=$GITHUB_WORKSPACE/.venv/bin/python" >> "$GITHUB_ENV"
+
+      - name: Installed modules and solvers
+        run: |
+          "$VPY" -m fea_core.modules
+          "$VPY" -m fea_core.solvers
+          "$VPY" -c "from fea_core import config; p = config.find_ccx(); print('ccx:', p); assert p.exists(), p"
+          "$VPY" -c "from fea_core import mystran; print('MYSTRAN:', mystran.MYSTRAN_EXE if mystran.installed() else mystran.NOT_RUN)"
+
+      - name: Which cases run (and which cannot on this runner)
+        run: |
+          "$VPY" -m verification.run_public --list
+
+      - name: Public verification set (quick on the weekly schedule, full otherwise)
+        run: |
+          QUICK=""
+          if [ "${{ github.event_name }}" = "schedule" ] || [ "${{ inputs.quick }}" = "true" ]; then QUICK="--quick"; fi
+          "$VPY" -m verification.run_public $QUICK
+
+      - name: Summary
+        if: always()
+        run: |
+          if [ -f docs/verification/README.md ]; then sed -n 1,16p docs/verification/README.md >> "$GITHUB_STEP_SUMMARY"; fi
+
+      - name: Generated page (README.md, results.csv, index.html) and the raw results
+        if: always()
+        uses: actions/upload-artifact@330a01c490aca151604b8cf639adc76d48f6c5d4   # v5.0.0
+        with:
+          name: verification-page-${{ github.sha }}
+          path: |
+            docs/verification/
+            verification/out/report.json
+            verification/out/run_meta.json
+            verification/out_mystran/report.json
+          if-no-files-found: warn
+          retention-days: 90

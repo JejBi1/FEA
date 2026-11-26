@@ -1,0 +1,22 @@
+[package]
+name = "fea_faer"
+version = "0.1.0"
+edition = "2021"
+rust-version = "1.84"
+description = "C interface of the faer sparse direct solvers for CalculiX (FEA Studio)"
+license = "MIT"
+publish = false
+
+[lib]
+crate-type = ["staticlib"]
+
+[dependencies]
+faer = { version = "=0.24.4", default-features = false, features = ["std", "rayon", "sparse-linalg"] }
+rayon = "=1.11.0"
+
+[profile.release]
+opt-level = 3
+codegen-units = 1
+lto = "fat"
+debug = false
+panic = "unwind"
