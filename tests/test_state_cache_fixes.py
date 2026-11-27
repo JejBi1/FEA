@@ -280,6 +280,9 @@ def test_an_existing_entry_is_validated_not_trusted(tmp_path):
     SC.clear()
     f4, _ = _entry(tmp_path, tag="dmg")
     np.save(f4 / "a.npy", np.zeros((4, 3)))
+    import os
+    st = (f4 / "a.npy").stat()                                                  # (the same size, and on a fast machine the same clock tick as the write: the
+    os.utime(f4 / "a.npy", ns=(st.st_atime_ns, st.st_mtime_ns + 10 ** 9))      # stamp of size + time would not see it – a real damage is not within that tick)
     assert not SC.verified(f4)
     f5, _ = _entry(tmp_path, tag="dmg")
     assert f5 == f4 and SC.verified(f5) and np.array_equal(SC.array(f5, "a"), np.arange(12.0).reshape(4, 3))
