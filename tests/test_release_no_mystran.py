@@ -146,6 +146,9 @@ def test_run_all_verdict_never_calls_a_skipped_case_passed():
 
 def test_run_public_without_mystran_skips_its_cases_and_runs_no_cross_check(tmp_path, monkeypatch, capsys):
     pytest.importorskip("OCP")
+    from fea_core import modules
+    if not modules.available("beams"):
+        pytest.skip("the frame cases F9M / F3M need the optional module beams (without it they are skipped for that reason, not for MYSTRAN)")
     from verification import mystran_check, public_report, run_all, run_public
     monkeypatch.setattr(mystran, "MYSTRAN_EXE", tmp_path / "none" / "mystran.exe")
     keys, skipped = run_public.select(["V1", "F9M", "F3M"], quick=False)

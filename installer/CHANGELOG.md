@@ -2,6 +2,13 @@
 
 Upgrade: run setup.exe (Windows) or `.run` (Linux) over the existing installation, or extract a new archive and run `Install FEA Studio.bat update` / `./install.sh update`. The installer applies migrations (`installer/migrations.py`), removes obsolete files, and synchronizes modules.
 
+## Unreleased (after 1.5.1)
+
+Found by the first run of the GitHub CI on the public repository (27. 11. 2026):
+- **Mortar contact is substituted on every platform** (surface-to-surface with K = 50·E and the visible warning, as on Windows since 1.4.2): the Hertz case K2 also stopped with "matrix found to be singular" in the Linux `ccx_spooles` of 1.5.1 – on the GitHub runner, and in WSL with the same deck on one and on two equation threads (eight threads converged): the mortar matrix of CalculiX 2.23 depends on the rounding, and it passed the earlier Linux gates by chance. `FEA_MORTAR=1` still writes mortar. The public verification lists K2 as not run with that reason.
+- **Windows CalculiX build** (`installer/windows/build_ccx.ps1`): the MSYS2 toolchain is unpacked with 7-Zip when it is installed – the `tar.exe` of Windows never finished that archive on the GitHub Windows runner (0 files after 2.5 h; 7-Zip 5 s). The unpacked files are the same.
+- **Tests and CI:** the tests no longer depend on the runner (free disk below the 10 GB rule of the state cache, 1–2 cores, the Windows CalculiX archive and the development notes missing from a checkout, optional modules of the profile minimal – a test module that imports an optional package at its top is skipped, not a collection error); two tests that also failed on a workstation (the start-up order check read an import inside a function; the faer check ran the direct solver); four type findings of basedpyright with the runner's numpy stubs. The verification workflow can run selected cases (`only`) and uploads the CalculiX logs of a failed run.
+
 ## 1.5.1 (2026-11-26)
 
 The first release after 1.4.1. It contains everything of the 1.4.2 release candidate (never published; its section follows) and the work below. Verification of the release: the public verification page (`docs/verification/`, run with the shipped Windows `ccx_spooles.exe`): 115 of 117 cases within tolerance (479 checks listed), none outside; K2 (mortar contact, Linux only) and KK4 (an impact of about 4 h) not run and listed as such; SM1 (submodel peak) is at 4.74 % against its tolerance of 6 % (owner decision of 26. 11. 2026, was 5 %); Linux (WSL2, shipped `ccx_spooles`): all 192 cases / 1 237 check values with SPOOLES and with faer, no case with an error; SM1 is at 5.12 % there, within the 6 % (outside the former 5 %), and no other check was outside its tolerance.

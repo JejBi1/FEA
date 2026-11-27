@@ -197,7 +197,7 @@ class AnalysisSettings:
 
 def effective_method(study) -> str:
     """The contact formulation that is really written to the ccx input: the chosen one, except mortar when this ccx cannot solve the
-    mortar matrix (config.mortar_supported – the Windows CalculiX) → surface-to-surface with K = 50·E (check.py warns)."""
+    mortar matrix (config.mortar_supported – by default on every platform) → surface-to-surface with K = 50·E (check.py warns)."""
     from .. import config
     m = study.contact_settings.method
     if m == "mortar" and not config.mortar_supported():
@@ -213,9 +213,9 @@ def mortar_substituted(study) -> bool:
 # Warning of the readiness check AND of the nonlinear run (the run alone is not checked when a finished mesh is taken over without the geometry):
 # one text, so that the two do not produce duplicates in Results.warnings.
 MORTAR_SUBSTITUTED_WARNING = (
-    "Contacts: mortar is not available with this CalculiX build (in the Hertz test case K2 the mortar matrix assembled by the "
-    "Windows CalculiX contained NaN entries and SPOOLES stopped with \"singular\") – surface-to-surface "
-    "with K = 50·E is used instead (K2: peak pressure −1.2 %); check the penetration, or use the Linux version for mortar")
+    "Contacts: mortar is not used – the mortar matrix of CalculiX 2.23 depends on rounding (in the Hertz test case K2 it ended as "
+    "\"singular\" on Windows and on Linux, with NaN entries on Windows) – surface-to-surface "
+    "with K = 50·E is used instead (K2: peak pressure −1.2 %); check the penetration. FEA_MORTAR=1 writes mortar anyway")
 
 
 def method_record(study) -> dict:

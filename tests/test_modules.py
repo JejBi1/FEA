@@ -146,9 +146,9 @@ def test_mortar_supported(monkeypatch):
         assert config.mortar_supported() is False                                # the NaN of the mortar matrix on Windows (K2, also in the own build)
     monkeypatch.setattr(config, "IS_WIN", False)
     monkeypatch.setattr(config, "CCX_EXE", Path("x/ccx_pastix"))
-    assert config.mortar_supported() is True                                     # the Linux SPOOLES solves it
+    assert config.mortar_supported() is False                                    # Linux too: K2 "singular" with 1 and 2 equation threads (27. 11. 2026)
     monkeypatch.setattr(config, "CCX_EXE", Path("x/ccx_spooles"))
-    assert config.mortar_supported() is True
+    assert config.mortar_supported() is False
     monkeypatch.setattr(config, "IS_WIN", True)
     monkeypatch.setenv("FEA_MORTAR", "1")
     assert config.mortar_supported() is True                                     # a ccx of your own can say so

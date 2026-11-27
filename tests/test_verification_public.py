@@ -66,8 +66,8 @@ def test_every_case_has_a_catalogue_entry():
     from verification import cases
     keys = set(cases.CASES)
     assert keys - set(catalogue.ENTRIES) == set(), "a verification case without a catalogue entry: classify it in verification/catalogue.py"
-    # SK6 is registered only when the optional module sketch (ezdxf) is installed
-    optional = set() if "SK6" in keys else {"SK6"}
+    # SK6 is registered only when the optional module sketch (ezdxf) is installed, U4 (strain-life fatigue) only with the module accel (Numba)
+    optional = {k for k in ("SK6", "U4") if k not in keys}
     assert set(catalogue.ENTRIES) - keys - optional == set(), "a catalogue entry of a case that no longer exists"
 
 

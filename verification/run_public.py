@@ -42,7 +42,7 @@ def unavailable(entry: catalogue.Entry) -> str:
     for need in entry.needs:
         if need == "mortar":
             if not config.mortar_supported():
-                return "the CalculiX of this platform does not solve mortar contact (it runs on the Linux CI)"
+                return "mortar contact is substituted by surface-to-surface (the mortar matrix of CalculiX 2.23 depends on rounding; FEA_MORTAR=1 runs it)"
         elif need == "mystran":
             from fea_core import mystran
             if not mystran.installed():

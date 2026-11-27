@@ -510,7 +510,7 @@ def test_cf_scale_of_a_bolt_interface_is_found_by_the_parts_not_by_the_name():
 
 
 def test_mortar_is_replaced_by_surface_to_surface_where_ccx_cannot_solve_it(monkeypatch):
-    """The Windows ccx_static stops on the mortar matrix (PaStiX NaN, SPOOLES singular – Hertz case K2): the written formulation
+    """The mortar matrix of ccx 2.23 is rounding-dependent (Windows NaN, Windows and Linux SPOOLES singular – Hertz case K2): the written formulation
     is surface-to-surface with K = 50·E (K2: peak pressure −1.2 %, 10·E gave −6.8 %) and the check warns."""
     from fea_core.contacts.inp import pair_params
     from fea_core.contacts.model import effective_method, mortar_substituted, auto_increments
@@ -531,7 +531,7 @@ def test_mortar_is_replaced_by_surface_to_surface_where_ccx_cannot_solve_it(monk
     assert auto_increments(st) == (0.25, 0.5)
     assert st.contact_settings.method == "mortar"                                 # the study keeps the user's choice
     _, w = check(st, ["A", "B"])
-    assert any("mortar is not available" in x for x in w)
+    assert any("mortar is not used" in x for x in w)
     # an explicit K is kept
     c2 = ContactPair("q", "A", "B", kind="frictionless", stiffness=1e6)
     assert f"PRESSURE-OVERCLOSURE=LINEAR\n{_fmt(1e6)}\n" in _written_pairs(st, [c2])

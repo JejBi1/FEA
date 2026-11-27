@@ -178,18 +178,16 @@ def solver_label(solver: str, exe: str | Path | None = None) -> str:
 
 
 def mortar_supported() -> bool:
-    """Does the found ccx solve `*CONTACT PAIR, TYPE=MORTAR` (Hertz case K2)? The Linux ccx (SPOOLES, K2 p0 −2.47 %) does; the Windows ccx does not –
-    neither the third-party `ccx_static.exe` of earlier versions nor the own build `ccx_spooles.exe` (verified 18. 11. 2026, the own build from the
-    pinned sources with the same K2 and the meshes of size × 1.03 and × 0.96): in the 2nd iteration the mortar matrix assembled by ccx contains NaN
-    entries (2 of 6.4 million in ccx_static; the same matrix without them factorizes in a standalone PaStiX 6.4.0 with 0 static pivots, and the entries
-    are NaN-free in the Linux SPOOLES run – the values of the two matrices differ by 1e-16 only: a platform-dependent domain error of the ccx mortar
-    code), SPOOLES stops with "matrix found to be singular" (also with one thread). No solver setting helps. FEA_MORTAR=1 / 0 forces the answer
-    (a ccx of your own).
+    """Is `*CONTACT PAIR, TYPE=MORTAR` (Hertz case K2) written as asked? NO by default, on every platform: the mortar matrix assembled by ccx 2.23 is
+    rounding-dependent. Windows (third-party `ccx_static.exe` and the own `ccx_spooles.exe`, 18. 11. 2026, K2 and the meshes of size × 1.03 / × 0.96): in the
+    2nd iteration it contains NaN entries (2 of 6.4 million; the values differ from a NaN-free run by 1e-16 only) and SPOOLES stops with "matrix found to be
+    singular". Linux (27. 11. 2026, the `ccx_spooles` of 1.5.1, the K2 deck of the GitHub runner): the same stop with one AND with two equation threads, the
+    same deck with eight threads converged – it passed the earlier Linux gates by chance of the rounding. No solver setting helps. The study keeps
+    `method = "mortar"` and ccx gets surface-to-surface with K = 50·E (`contacts.model.effective_method`, a visible warning; K2 p0 −1.2 %).
+    FEA_MORTAR=1 writes mortar anyway (a ccx of your own, a study that is known to converge), FEA_MORTAR=0 is the default.
     """
     env = os.environ.get("FEA_MORTAR", "").strip()
-    if env in ("0", "1"):
-        return env == "1"
-    return not IS_WIN
+    return env == "1"
 
 
 # `Study.solver.solver`: the stored word of "automatic" is still "PARDISO" – the name of the solver that earlier versions chose by default (the Intel one,

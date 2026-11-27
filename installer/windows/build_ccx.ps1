@@ -77,8 +77,23 @@ try {
     if (-not (Test-Path $stamp) -or (Get-Content $stamp -Raw).Trim() -ne $baseSum) {
         if (Test-Path "$drv\msys64") { Write-Host "removing the old toolchain"; Remove-Item -Recurse -Force "$drv\msys64" }
         Write-Host "unpacking $baseFile (2 minutes: many small files)"
-        & "$env:SystemRoot\System32\tar.exe" -xf $tarball -C "$drv\"
-        if ($LASTEXITCODE) { throw "tar failed" }
+        # 7-Zip when it is there: the tar.exe of Windows never finished this archive on the GitHub Windows runner (0 files after 2.5 h; 7-Zip 5 s
+        # there, tar 25 s here). The unpacked files are the same either way.
+        $7z = @("$env:ProgramFiles\7-Zip\7z.exe", (Get-Command 7z.exe -ErrorAction SilentlyContinue).Source) | Where-Object { $_ -and (Test-Path $_) } | Select-Object -First 1
+        if ($7z) {
+            $plainDir = Join-Path $Work "msys2-base-tar"
+            Remove-Item -Recurse -Force $plainDir -ErrorAction SilentlyContinue
+            & $7z x $tarball "-o$plainDir" -y | Out-Null
+            if ($LASTEXITCODE) { throw "7-Zip failed on $baseFile" }
+            $plain = Get-ChildItem $plainDir -Filter *.tar | Select-Object -First 1
+            if (-not $plain) { throw "7-Zip gave no .tar from $baseFile" }
+            & $7z x $plain.FullName "-o$drv\" -y | Out-Null
+            if ($LASTEXITCODE) { throw "7-Zip failed on $($plain.Name)" }
+            Remove-Item -Recurse -Force $plainDir
+        } else {
+            & "$env:SystemRoot\System32\tar.exe" -xf $tarball -C "$drv\"
+            if ($LASTEXITCODE) { throw "tar failed" }
+        }
         Set-Content -Path $stamp -Value $baseSum -NoNewline
     }
 
