@@ -689,7 +689,7 @@ tr.case .key{font-weight:700}.chip{display:inline-block;background:var(--chip);b
 </tbody></table></div>
 <h2 id="not-run">Not run on this platform</h2>
 <div class="wrap"><table><thead><tr><th>Case</th><th>Title</th><th>Reason</th></tr></thead><tbody>
-<tr><td>K2</td><td>Hertz contact: sphere on a plate (mortar)</td><td>the CalculiX of this platform does not solve mortar contact (it runs on the Linux CI)</td></tr>
+<tr><td>K2</td><td>Hertz contact: sphere on a plate (mortar)</td><td>mortar contact is substituted by surface-to-surface (the mortar matrix of CalculiX 2.23 depends on rounding; FEA_MORTAR=1 runs it)</td></tr>
 <tr><td>KK4</td><td>Impact of a sphere on a rigid plate (*DYNAMIC + contact)</td><td>takes hours (about 4 h with the shipped CalculiX): python -m verification.run_public --only KK4</td></tr>
 </tbody></table></div>
 </main></body></html>

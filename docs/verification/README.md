@@ -685,6 +685,6 @@ The same model, mesh (coarsened ×2) and nodal loads are solved by CalculiX and 
 
 | Case | Title | Reason |
 |---|---|---|
-| K2 | Hertz contact: sphere on a plate (mortar) | the CalculiX of this platform does not solve mortar contact (it runs on the Linux CI) |
+| K2 | Hertz contact: sphere on a plate (mortar) | mortar contact is substituted by surface-to-surface (the mortar matrix of CalculiX 2.23 depends on rounding; FEA_MORTAR=1 runs it) |
 | KK4 | Impact of a sphere on a rigid plate (*DYNAMIC + contact) | takes hours (about 4 h with the shipped CalculiX): python -m verification.run_public --only KK4 |
 
