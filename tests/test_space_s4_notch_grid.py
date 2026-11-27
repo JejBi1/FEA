@@ -129,7 +129,9 @@ def test_the_transfer_is_chunked_and_identical_to_the_unchunked_one(monkeypatch)
     TF1, TM1 = IF.interface_transfer(mi, f, 0.02, "x")
     monkeypatch.setattr(IF, "CHUNK_ELEMENTS", 40 * 20)                          # 16 rows per block (the minimum), many blocks
     TF2, TM2 = IF.interface_transfer(mi, f, 0.02, "x")
-    assert np.array_equal(TF1, TF2) and np.array_equal(TM1, TM2)
+    # not bitwise: the BLAS product q @ F may round a row differently for another block height (OpenBLAS on the Linux runners does)
+    for A, B in ((TF1, TF2), (TM1, TM2)):
+        assert A.shape == B.shape and np.abs(A - B).max() <= 1e-13 * np.abs(A).max()
 
 
 def test_a_memory_error_is_a_clean_error(monkeypatch):

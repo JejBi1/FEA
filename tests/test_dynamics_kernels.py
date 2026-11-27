@@ -67,14 +67,18 @@ def test_against_solve_ivp():
     v0 = np.array([0.5, 0.3, -0.2, 0.0])
     q, v, a = modal_ode.integrate(dt, P, om, ze, q0=q0, v0=v0)
     t = np.arange(T) * dt
+    # the reference integrates every interval separately: the excitation is linear inside it, so DOP853 never steps over a kink
+    # (one run over the whole history with np.interp was only ~1e-9…1e-8 accurate and its error depended on the platform)
     for j in range(4):
-        def rhs(tt, y, j=j):
-            p = np.interp(tt, t, P[:, j])
-            return [y[1], p - 2 * ze[j] * om[j] * y[1] - om[j] ** 2 * y[0]]
-        s = solve_ivp(rhs, (0, t[-1]), [q0[j], v0[j]], t_eval=t, rtol=1e-12, atol=1e-14, method="DOP853",
-                      max_step=dt)
-        assert np.abs(s.y[0] - q[:, j]).max() <= 1e-8 * np.abs(q[:, j]).max()
-        assert np.abs(s.y[1] - v[:, j]).max() <= 1e-8 * np.abs(v[:, j]).max()
+        y = np.empty((T, 2))
+        y[0] = q0[j], v0[j]
+        for k in range(T - 1):
+            def rhs(tt, s, j=j, k=k):
+                p = P[k, j] + (P[k + 1, j] - P[k, j]) * (tt - t[k]) / dt
+                return [s[1], p - 2 * ze[j] * om[j] * s[1] - om[j] ** 2 * s[0]]
+            y[k + 1] = solve_ivp(rhs, (t[k], t[k + 1]), y[k], rtol=1e-13, atol=1e-15, method="DOP853").y[:, -1]
+        assert np.abs(y[:, 0] - q[:, j]).max() <= 1e-10 * np.abs(q[:, j]).max()
+        assert np.abs(y[:, 1] - v[:, j]).max() <= 1e-10 * np.abs(v[:, j]).max()
 
 
 def test_rigid_mode_double_integration():
